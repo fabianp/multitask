@@ -15,7 +15,7 @@ Operating System :: Unix
 """
 
 setup(
-    name='minitrace',
+    name='multitask',
     description='A module for machine learning models with trace norm penalties',
     long_description=open('README.rst').read(),
     version=multitask.__version__,
