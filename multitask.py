@@ -1,8 +1,8 @@
-
-__version__ = '0.1'
-
+import numpy as np
 from scipy import linalg
 from scipy.sparse import linalg as splinalg
+
+__version__ = '0.1'
 
 def multitask_ridge(X, y, alpha, beta, shape_B, rtol=1e-5, verbose=False, warm_start=None):
     """
