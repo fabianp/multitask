@@ -18,6 +18,10 @@ def multitask_ridge(X, y, alpha, beta, shape_B, rtol=1e-5, verbose=False, warm_s
     beta: float
     shape_B: tuple of size (2,)
         Contains the desired shape of the output matrix
+
+    Returns
+    -------
+    B : array, shape = shape_B
     """
     n_subj = shape_B[1]
 
