@@ -4,7 +4,7 @@ from scipy.sparse import linalg as splinalg
 
 __version__ = '0.1'
 
-def multitask_ridge(X, y, alpha, beta, shape_B, rtol=1e-5, verbose=False, warm_start=None):
+def multitask_ridge(X, y, alpha, beta, n_task, rtol=1e-5, verbose=False, warm_start=None):
     """
     Multitask ridge model (refs ?)
 
@@ -23,13 +23,15 @@ def multitask_ridge(X, y, alpha, beta, shape_B, rtol=1e-5, verbose=False, warm_s
     -------
     B : array, shape = shape_B
     """
-    n_subj = shape_B[1]
+    m = X.shape[1] // n_task
+    assert X.shape[1] == n_task * m
+    shape_B = (X.shape[1] / n_task, n_task) # check that this division is integer
 
     X = splinalg.aslinearoperator(X)
 
     def matvec(z):
         w_mean = np.mean(z.reshape(shape_B, order='F'), 1)
-        return X.rmatvec(X.matvec(z)) + (beta) * z + (alpha - beta) * np.tile(w_mean, n_subj)
+        return X.rmatvec(X.matvec(z)) + (beta) * z + (alpha - beta) * np.tile(w_mean, n_task)
 
     K = splinalg.LinearOperator((X.shape[1], X.shape[1]), matvec=matvec, rmatvec=matvec, dtype=X.dtype)
     Xy = X.rmatvec(y)
