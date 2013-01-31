@@ -1,10 +1,11 @@
+# .. License: Simplified BSD ..
+# .. Author: Fabian Pedregosa <fabian@fseoane.net> ..
+
 import numpy as np
 from scipy import linalg
 from scipy.sparse import linalg as splinalg
 
-__version__ = '0.1'
-
-def multitask_ridge(X, y, alpha, beta, n_task, rtol=1e-5, verbose=False, warm_start=None):
+def ridge(X, y, alpha, beta, n_task, rtol=1e-5, verbose=False, warm_start=None):
     """
     Multitask ridge model (refs ?)
 
