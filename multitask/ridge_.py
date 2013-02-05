@@ -2,10 +2,10 @@
 # .. Author: Fabian Pedregosa <fabian@fseoane.net> ..
 
 import numpy as np
-from scipy import linalg
+from scipy import linalg, sparse
 from scipy.sparse import linalg as splinalg
 
-def ridge(X, y, alpha, beta, n_task, rtol=1e-5, verbose=False, warm_start=None):
+def ridge(X, y, alpha, beta, n_task, M=None, rtol=1e-5, verbose=False, warm_start=None):
     """
     Multitask ridge model (refs ?)
 
@@ -25,14 +25,19 @@ def ridge(X, y, alpha, beta, n_task, rtol=1e-5, verbose=False, warm_start=None):
     B : array, shape = shape_B
     """
     m = X.shape[1] // n_task
-    assert X.shape[1] == n_task * m
-    shape_B = (X.shape[1] / n_task, n_task) # check that this division is integer
+    assert X.shape[1] == n_task * m # check that division is integer
+    shape_B = (X.shape[1] / n_task, n_task)
 
     X = splinalg.aslinearoperator(X)
 
-    def matvec(z):
-        w_mean = np.mean(z.reshape(shape_B, order='F'), 1)
-        return X.rmatvec(X.matvec(z)) + (beta) * z + (alpha - beta) * np.tile(w_mean, n_task)
+    if M is None:
+        def matvec(z):
+            w_mean = np.mean(z.reshape(shape_B, order='F'), 1)
+            return X.rmatvec(X.matvec(z)) + (beta) * z + (alpha - beta) * np.tile(w_mean, n_task)
+    else:
+        M_kron = sparse.kron(sparse.eye(m, m), M)
+        def matvec(z):
+            return X.rmatvec(X.matvec(z)) + M_kron.dot(z)
 
     K = splinalg.LinearOperator((X.shape[1], X.shape[1]), matvec=matvec, rmatvec=matvec, dtype=X.dtype)
     Xy = X.rmatvec(y)

@@ -22,7 +22,7 @@ setup(
     author='Fabian Pedregosa',
     author_email='fabian@fseoane.net',
     url='http://pypi.python.org/pypi/minitrace',
-    py_modules=['multitask'],
+    packages=['multitask'],
     classifiers=[_f for _f in CLASSIFIERS.split('\n') if _f],
     license='Simplified BSD'
 
