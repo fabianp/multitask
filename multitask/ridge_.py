@@ -5,7 +5,7 @@ import numpy as np
 from scipy import linalg, sparse
 from scipy.sparse import linalg as splinalg
 
-def ridge(X, y, alpha, beta, n_task, M=None, rtol=1e-5, verbose=False, warm_start=None):
+def ridge(X, y, alpha, beta, n_task, method='iterative', M=None, rtol=1e-5, verbose=False, warm_start=None):
     """
     Multitask ridge model (refs ?)
 
@@ -17,6 +17,7 @@ def ridge(X, y, alpha, beta, n_task, M=None, rtol=1e-5, verbose=False, warm_star
     y : array
     alpha: float
     beta: float
+    method: {'iterative', 'direct'}
     shape_B: tuple of size (2,)
         Contains the desired shape of the output matrix
 
