@@ -114,62 +114,100 @@ def low_rank(X, y, alpha, shape_u, Z=None, prior_u=None, u0=None, v0=None, rtol=
         return U, V, W
 
 
-def low_rank_2(X, y, alpha, shape_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
+def khatri_rao(a, b):
     """
-    just a different algorithm
+    Compute the Khatri-rao product, where the partition is taken to be
+    the vectors along axis one.
+
+    This is a helper function for rank_one
+
+    Parameters
+    ----------
+    a : array, shape (n, p)
+    b : array, shape (m, p)
+
+    Returns
+    -------
+
+    """
+    res = []
+    for i in range(a.shape[1]):
+        res.append(np.kron(a[:, i], b[:, i]))
+    return np.vstack(res).T
+
+
+def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
+    """
+    multi-target rank one
     """
 
     X = splinalg.aslinearoperator(X)
     y = np.asarray(y)
-    assert len(shape_u) == 2
-    shape_v = (X.shape[1] / shape_u[0],)  # TODO: check first dimension is integer
-    shape_u = (shape_u[0],)
+    n_task = y.shape[1]
+    assert len(size_u) == 2
 
-    def matvec_1(a, b):
+    def matvec_1(a, b, n_task):
         """
         (a.T kron I_n) b
         """
-        return np.dot(b.reshape((-1, a.size), order='F'), a).ravel()
+
+        B = b.reshape((n_task, -1, a.shape[1]), order='F')
+        return np.einsum("ijk, ik -> ij", B, a)
+        # return np.dot(b.reshape((-1, a.size), order='F'), a).ravel()
 
     def matvec_2(a, b):
         """
         (I kron a.T) b
         """
-        return np.dot(b.reshape((-1, a.size), order='C'), a).ravel()
-
+        B = b.reshape((n_task, -1, a.shape[1]), order='C')
+        return np.einsum("ijk, ik -> ij", B, a)
+        # return np.dot(b.reshape((-1, a.size), order='C'), a).ravel()
 
     if u0 is None:
-        u0 = np.random.randn(*shape_u)
+        u0 = np.random.randn(size_u[0] * n_task)
     if v0 is None:
-        v0 = np.ones(shape_v)  # np.random.randn(shape_B[1])
+        v0 = np.ones(X.shape[1] / size_u[0] * n_task)  # np.random.randn(shape_B[1])
 
     Xy = X.rmatvec(y)
 
-    def obj(a, b):
-        a = a.reshape((-1, 1))
-        b = b.reshape((-1, 1))
-        return .5 * linalg.norm(y - X.matvec(np.dot(a, b.T).ravel('F'))) ** 2
+    def obj(a, b, n_task):
+        a = a.reshape((-1, n_task))
+        b = b.reshape((-1, n_task))
+        tmp = khatri_rao(b, a)
+        return .5 * linalg.norm(y - X.matvec(tmp), 'fro') ** 2
 
-    def grad_u(a, b):
-        uv0 = np.kron(b, a)
+    def grad_u(a, b, n_task):
+        a = a.reshape((-1, n_task))
+        b = b.reshape((-1, n_task))
+        uv0 = khatri_rao(b, a)
         tmp1 = Xy - X.rmatvec(X.matvec(uv0))
-        return - matvec_1(b, tmp1)
+        res = -matvec_1(b.T, tmp1.T, n_task).ravel('F')
+        return res
 
-    def grad_v(a, b):
-        uv0 = np.kron(b, a)
-        tmp1 = X.rmatvec(X.matvec(uv0))
-        return - matvec_2(a, Xy - tmp1)
+    def grad_v(a, b, n_task):
+        a = a.reshape((-1, n_task))
+        b = b.reshape((-1, n_task))
+        uv0 = khatri_rao(b, a)
+        tmp1 = Xy - X.rmatvec(X.matvec(uv0))
+        return - matvec_2(a.T, tmp1.T).ravel('F')
 
-    for i in range(maxiter):
+    pobj = -1
+    counter = 0
+    while counter < maxiter: # this allows to set maxiter to infinity
+        counter += 1
 
-        # optimize u
-        print(linalg.norm(y - X.matvec(np.kron(v0, u0))))
-        u0 = optimize.fmin_cg(lambda x: obj(x, v0), u0.ravel(), fprime=lambda x: grad_u(x, v0), maxiter=5)
+        u0 = optimize.fmin_cg(lambda x: obj(x, v0, n_task), u0.ravel(), fprime=lambda x: grad_u(x, v0, n_task), maxiter=5)
         u0 /= linalg.norm(u0)
-        v0 = optimize.fmin_cg(lambda x: obj(u0, x), v0.ravel(), fprime=lambda x: grad_v(u0, x), maxiter=5)
+        v0 = optimize.fmin_cg(lambda x: obj(u0, x, n_task), v0.ravel(), fprime=lambda x: grad_v(u0, x, n_task), maxiter=5)
 
-    return u0[:, None], v0[:, None]
+        new_pobj = obj(u0, v0, n_task)
+        print new_pobj
+        if np.abs(new_pobj - pobj) < rtol:
+            break
 
+        pobj = new_pobj
+
+    return u0.reshape((-1, n_task)), v0.reshape((-1, n_task))
 
 
 if __name__ == '__main__':
@@ -179,7 +217,9 @@ if __name__ == '__main__':
     u_true, v_true = np.random.rand(size_u, 2), 1 + .1 * np.random.randn(size_v, 2)
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
-    u, v = low_rank_2(X, y, .1, (size_u, 1), Z=None, verbose=True)
+    #y = y.reshape((-1, 1))
+    y = np.vstack((y,y)).T
+    u, v = rank_one(X, y, .1, (size_u, 1), Z=None, verbose=True)
 
     import pylab as plt
     plt.matshow(B)
