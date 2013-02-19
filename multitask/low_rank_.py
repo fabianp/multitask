@@ -2,7 +2,7 @@
 # .. Author: Fabian Pedregosa <fabian@fseoane.net> ..
 
 import numpy as np
-from scipy import sparse, linalg
+from scipy import sparse, linalg, optimize
 from scipy.sparse import linalg as splinalg
 
 
@@ -14,12 +14,14 @@ def low_rank(X, y, alpha, shape_u, Z=None, prior_u=None, u0=None, v0=None, rtol=
 
     subject to ||u|| = 1.
 
-
     Parameters
     ----------
     X : {array. sparse matrix, LinearOpeator}, shape = [n_samples, n_features]
     y : array-like, shape = [n_samples] or [n_samples, n_targets]
     prior_u: array, shape=shape_u
+
+    maxiter : number of iterations
+       set to infinity to iterate until convergence
 
     Returns
     -------
@@ -46,7 +48,9 @@ def low_rank(X, y, alpha, shape_u, Z=None, prior_u=None, u0=None, v0=None, rtol=
         Y = y
     U, V, W = [], [], []
     for yi in Y.T:
-        for _ in range(maxiter):
+        n_iter = 0
+        while n_iter <= maxiter: # this allows to set maxiter to inf
+            n_iter += 1
             old_u0 = u0.copy()
 
             # update v
@@ -95,10 +99,10 @@ def low_rank(X, y, alpha, shape_u, Z=None, prior_u=None, u0=None, v0=None, rtol=
 
             if linalg.norm(old_u0 - u0, 2) < rtol:
                 break
-        U.append(u0)
-        V.append(v0)
+        U.append(u0.copy())
+        V.append(v0.copy())
         if Z is not None:
-            W.append(w0)
+            W.append(w0.copy())
     if y.ndim == 1:
         U = U[0]
         V = V[0]
@@ -110,6 +114,63 @@ def low_rank(X, y, alpha, shape_u, Z=None, prior_u=None, u0=None, v0=None, rtol=
         return U, V, W
 
 
+def low_rank_2(X, y, alpha, shape_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
+    """
+    just a different algorithm
+    """
+
+    X = splinalg.aslinearoperator(X)
+    y = np.asarray(y)
+    assert len(shape_u) == 2
+    shape_v = (X.shape[1] / shape_u[0],)  # TODO: check first dimension is integer
+    shape_u = (shape_u[0],)
+
+    def matvec_1(a, b):
+        """
+        (a.T kron I_n) b
+        """
+        return np.dot(b.reshape((-1, a.size), order='F'), a).ravel()
+
+    def matvec_2(a, b):
+        """
+        (I kron a.T) b
+        """
+        return np.dot(b.reshape((-1, a.size), order='C'), a).ravel()
+
+
+    if u0 is None:
+        u0 = np.random.randn(*shape_u)
+    if v0 is None:
+        v0 = np.ones(shape_v)  # np.random.randn(shape_B[1])
+
+    Xy = X.rmatvec(y)
+
+    def obj(a, b):
+        a = a.reshape((-1, 1))
+        b = b.reshape((-1, 1))
+        return .5 * linalg.norm(y - X.matvec(np.dot(a, b.T).ravel('F'))) ** 2
+
+    def grad_u(a, b):
+        uv0 = np.kron(b, a)
+        tmp1 = Xy - X.rmatvec(X.matvec(uv0))
+        return - matvec_1(b, tmp1)
+
+    def grad_v(a, b):
+        uv0 = np.kron(b, a)
+        tmp1 = X.rmatvec(X.matvec(uv0))
+        return - matvec_2(a, Xy - tmp1)
+
+    for i in range(maxiter):
+
+        # optimize u
+        print(linalg.norm(y - X.matvec(np.kron(v0, u0))))
+        u0 = optimize.fmin_cg(lambda x: obj(x, v0), u0.ravel(), fprime=lambda x: grad_u(x, v0), maxiter=5)
+        u0 /= linalg.norm(u0)
+        v0 = optimize.fmin_cg(lambda x: obj(u0, x), v0.ravel(), fprime=lambda x: grad_v(u0, x), maxiter=5)
+
+    return u0[:, None], v0[:, None]
+
+
 
 if __name__ == '__main__':
     size_u, size_v = 10, 8
@@ -118,7 +179,7 @@ if __name__ == '__main__':
     u_true, v_true = np.random.rand(size_u, 2), 1 + .1 * np.random.randn(size_v, 2)
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
-    u, v = low_rank(X, y, .1, (size_u, 2), Z=None, verbose=True)
+    u, v = low_rank_2(X, y, .1, (size_u, 1), Z=None, verbose=True)
 
     import pylab as plt
     plt.matshow(B)
