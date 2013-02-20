@@ -130,10 +130,18 @@ def khatri_rao(a, b):
     -------
 
     """
-    res = []
-    for i in range(a.shape[1]):
-        res.append(np.kron(a[:, i], b[:, i]))
-    return np.vstack(res).T
+    res = np.empty((a.shape[0] * b.shape[0], a.shape[1]), dtype=np.float)
+    for i in range(a.shape[0]):
+        res[i * b.shape[0]:(i + 1) * b.shape[0]] = a[i, np.newaxis] * b
+    return res
+
+
+    # res2 = []
+    # for i in range(a.shape[1]):
+    #     res2.append(np.kron(a[:, i], b[:, i]))
+    # res2 = np.vstack(res2).T
+    # assert np.allclose(res, res2)
+    # return res
 
 
 def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
@@ -141,10 +149,12 @@ def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1
     multi-target rank one
     """
 
+    s = splinalg.svds(X, 1)[1][0]
+
     X = splinalg.aslinearoperator(X)
     y = np.asarray(y)
     n_task = y.shape[1]
-    assert len(size_u) == 2
+
 
     def matvec_1(a, b, n_task):
         """
@@ -152,29 +162,35 @@ def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1
         """
 
         B = b.reshape((n_task, -1, a.shape[1]), order='F')
-        return np.einsum("ijk, ik -> ij", B, a)
+        res = np.einsum("ijk, ik -> ij", B, a)
+        return res
         # return np.dot(b.reshape((-1, a.size), order='F'), a).ravel()
+
 
     def matvec_2(a, b):
         """
         (I kron a.T) b
         """
         B = b.reshape((n_task, -1, a.shape[1]), order='C')
-        return np.einsum("ijk, ik -> ij", B, a)
+        res = np.einsum("ijk, ik -> ij", B, a)
+        #import ipdb; ipdb.set_trace()
+        return res
         # return np.dot(b.reshape((-1, a.size), order='C'), a).ravel()
 
     if u0 is None:
-        u0 = np.random.randn(size_u[0] * n_task)
+        u0 = np.random.randn(size_u * n_task)
     if v0 is None:
-        v0 = np.ones(X.shape[1] / size_u[0] * n_task)  # np.random.randn(shape_B[1])
+        v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
     Xy = X.rmatvec(y)
+
 
     def obj(a, b, n_task):
         a = a.reshape((-1, n_task))
         b = b.reshape((-1, n_task))
-        tmp = khatri_rao(b, a)
-        return .5 * linalg.norm(y - X.matvec(tmp), 'fro') ** 2
+        uv0 = khatri_rao(b, a)
+        return .5 * linalg.norm(y - X.matvec(uv0), 'fro') ** 2
+
 
     def grad_u(a, b, n_task):
         a = a.reshape((-1, n_task))
@@ -184,6 +200,7 @@ def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1
         res = -matvec_1(b.T, tmp1.T, n_task).ravel('F')
         return res
 
+
     def grad_v(a, b, n_task):
         a = a.reshape((-1, n_task))
         b = b.reshape((-1, n_task))
@@ -191,18 +208,25 @@ def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1
         tmp1 = Xy - X.rmatvec(X.matvec(uv0))
         return - matvec_2(a.T, tmp1.T).ravel('F')
 
-    pobj = -1
+    pobj = 1e10
     counter = 0
     while counter < maxiter: # this allows to set maxiter to infinity
         counter += 1
 
-        u0 = optimize.fmin_cg(lambda x: obj(x, v0, n_task), u0.ravel(), fprime=lambda x: grad_u(x, v0, n_task), maxiter=5)
+        print 'Check grad %s' % optimize.check_grad(lambda x: obj(x, v0, n_task), lambda x: grad_u(x, v0, n_task), u0.ravel('F'))
+        #import ipdb; ipdb.set_trace()
+        step_size = 1. / (s * linalg.norm(v0))
+        u0 = optimize.fmin_cg(lambda x: obj(x, v0, n_task), u0.ravel('F'), fprime=lambda x: grad_u(x, v0, n_task),
+                                maxiter=10, epsilon=step_size)
         u0 /= linalg.norm(u0)
-        v0 = optimize.fmin_cg(lambda x: obj(u0, x, n_task), v0.ravel(), fprime=lambda x: grad_v(u0, x, n_task), maxiter=5)
+        step_size = 1. / (s * linalg.norm(u0))
+        v0 = optimize.fmin_cg(lambda x: obj(u0, x, n_task), v0.ravel('F'), fprime=lambda x: grad_v(u0, x, n_task),
+                                maxiter=10, epsilon=step_size)
 
         new_pobj = obj(u0, v0, n_task)
-        print new_pobj
-        if np.abs(new_pobj - pobj) < rtol:
+        print 'OBJ %s' % new_pobj
+        print 'DIFF %s' % (np.abs(new_pobj - pobj) / pobj)
+        if np.abs(new_pobj - pobj) / pobj < rtol:
             break
 
         pobj = new_pobj
@@ -217,15 +241,15 @@ if __name__ == '__main__':
     u_true, v_true = np.random.rand(size_u, 2), 1 + .1 * np.random.randn(size_v, 2)
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
-    #y = y.reshape((-1, 1))
-    y = np.vstack((y,y)).T
-    u, v = rank_one(X, y, .1, (size_u, 1), Z=None, verbose=True)
+    # y = y.reshape((-1, 1))
+    y = np.array([i * y for i in range(1, 10)]).T
+    u, v = rank_one(X, y, .1, size_u, Z=None, verbose=True)
 
     import pylab as plt
     plt.matshow(B)
     plt.title('Groud truth')
     plt.colorbar()
-    plt.matshow(np.dot(u, v.T))
+    plt.matshow(np.dot(u[:, :1], v[:, :1].T))
     plt.title('Estimated')
     plt.colorbar()
     plt.show()
