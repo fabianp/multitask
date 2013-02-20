@@ -52,10 +52,14 @@ def trace(X, y, alpha, beta, shape_B, rtol=1e-3, max_iter=1000, verbose=False, w
     Parameters
     ----------
     X : LinearOperator
-
     L : None
-
+        largest eigenvalue of X (optional)
     shape_B : tuple
+
+    Returns
+    -------
+    B : array
+    gap : float
     """
     X = splinalg.aslinearoperator(X)
     n_samples = X.shape[0]
@@ -73,9 +77,9 @@ def trace(X, y, alpha, beta, shape_B, rtol=1e-3, max_iter=1000, verbose=False, w
         def K_matvec(v):
             return X.rmatvec(X.matvec(v)) + beta * v
         K = splinalg.LinearOperator((X.shape[1], X.shape[1]), matvec=K_matvec, dtype=X.dtype)
-        L = splinalg.eigsh(K, 1, return_eigenvectors=False)[0]
+        L = np.sqrt(splinalg.eigsh(K, 1, return_eigenvectors=False)[0])
 
-    step_size = 1. / L
+    step_size = 1. / (L * L)
     Xy = X.rmatvec(y)
     v0 = None
     t = 1.
