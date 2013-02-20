@@ -213,7 +213,7 @@ def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1
     while counter < maxiter: # this allows to set maxiter to infinity
         counter += 1
 
-        print 'Check grad %s' % optimize.check_grad(lambda x: obj(x, v0, n_task), lambda x: grad_u(x, v0, n_task), u0.ravel('F'))
+        # print 'Check grad %s' % optimize.check_grad(lambda x: obj(x, v0, n_task), lambda x: grad_u(x, v0, n_task), u0.ravel('F'))
         #import ipdb; ipdb.set_trace()
         step_size = 1. / (s * linalg.norm(v0))
         u0 = optimize.fmin_cg(lambda x: obj(x, v0, n_task), u0.ravel('F'), fprime=lambda x: grad_u(x, v0, n_task),
