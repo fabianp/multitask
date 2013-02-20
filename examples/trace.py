@@ -8,7 +8,7 @@ X = np.random.randn(n_samples, n_features)
 y = np.random.randn(n_samples)
 
 res = []
-for alpha in np.logspace(-1, 3, 400):
+for alpha in np.logspace(-1, 3, 1000):
     print('alpha: %s' % alpha)
     B_, gap_ = mt.trace(X, y, alpha, 0., (10, 10), rtol=1e-10, verbose=True, max_iter=1000)
     s = linalg.svdvals(B_)
