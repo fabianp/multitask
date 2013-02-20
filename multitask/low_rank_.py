@@ -147,6 +147,11 @@ def khatri_rao(a, b):
 def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one
+
+    Parameters
+    ----------
+    X : sparse matrix, shape (
+
     """
 
     s = splinalg.svds(X, 1)[1][0]
@@ -162,12 +167,12 @@ def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1
         """
 
         B = b.reshape((n_task, -1, a.shape[1]), order='F')
-        res = np.einsum("ijk, ik -> ij", B, a)
+        res = np.einsum("ijk, ik -> ij", B, a).T
         return res
         # return np.dot(b.reshape((-1, a.size), order='F'), a).ravel()
 
 
-    def matvec_2(a, b):
+    def matvec_2(a, b, n_task):
         """
         (I kron a.T) b
         """
@@ -178,7 +183,7 @@ def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1
         # return np.dot(b.reshape((-1, a.size), order='C'), a).ravel()
 
     if u0 is None:
-        u0 = np.random.randn(size_u * n_task)
+        u0 = np.ones(size_u * n_task)
     if v0 is None:
         v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
@@ -186,52 +191,57 @@ def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1
 
 
     def obj(a, b, n_task):
-        a = a.reshape((-1, n_task))
-        b = b.reshape((-1, n_task))
         uv0 = khatri_rao(b, a)
         return .5 * linalg.norm(y - X.matvec(uv0), 'fro') ** 2
 
 
     def grad_u(a, b, n_task):
-        a = a.reshape((-1, n_task))
-        b = b.reshape((-1, n_task))
         uv0 = khatri_rao(b, a)
+        #import ipdb; ipdb.set_trace()
         tmp1 = Xy - X.rmatvec(X.matvec(uv0))
-        res = -matvec_1(b.T, tmp1.T, n_task).ravel('F')
+        res = -matvec_1(b.T, tmp1.T, n_task)#.ravel('F').reshape((-1, n_task))
         return res
 
 
     def grad_v(a, b, n_task):
-        a = a.reshape((-1, n_task))
-        b = b.reshape((-1, n_task))
         uv0 = khatri_rao(b, a)
         tmp1 = Xy - X.rmatvec(X.matvec(uv0))
-        return - matvec_2(a.T, tmp1.T).ravel('F')
+        return - matvec_2(a.T, tmp1.T, n_task).T
 
-    pobj = 1e10
+    pobj = [np.inf]
     counter = 0
+    u0 = u0.reshape((-1, n_task))
+    v0 = v0.reshape((-1, n_task))
     while counter < maxiter: # this allows to set maxiter to infinity
         counter += 1
 
-        # print 'Check grad %s' % optimize.check_grad(lambda x: obj(x, v0, n_task), lambda x: grad_u(x, v0, n_task), u0.ravel('F'))
+        #print 'Check grad %s' % optimize.check_grad(lambda x: obj(x, v0[:, :1], n_task), lambda x: grad_u(x, v0[:, :1], n_task), u0[:, :1])
         #import ipdb; ipdb.set_trace()
-        step_size = 1. / (s * linalg.norm(v0))
-        u0 = optimize.fmin_cg(lambda x: obj(x, v0, n_task), u0.ravel('F'), fprime=lambda x: grad_u(x, v0, n_task),
-                                maxiter=10, epsilon=step_size)
-        u0 /= linalg.norm(u0)
-        step_size = 1. / (s * linalg.norm(u0))
-        v0 = optimize.fmin_cg(lambda x: obj(u0, x, n_task), v0.ravel('F'), fprime=lambda x: grad_v(u0, x, n_task),
-                                maxiter=10, epsilon=step_size)
+
+        v0_norm2 = (v0 * v0).sum(0)
+        step_size = 1. / (s * s * v0_norm2)
+
+        for i in range(5):
+            u0 -= step_size.reshape((1, n_task)) * grad_u(u0, v0, n_task)
+
+        u0_norm2 = (u0 * u0).sum(0)
+        step_size = 1. / (s * s * u0_norm2)
+        for i in range(5):
+            v0 -= step_size.reshape((1, n_task)) * grad_v(u0, v0, n_task)
 
         new_pobj = obj(u0, v0, n_task)
         print 'OBJ %s' % new_pobj
-        print 'DIFF %s' % (np.abs(new_pobj - pobj) / pobj)
-        if np.abs(new_pobj - pobj) / pobj < rtol:
+        gap = (pobj[-1] - new_pobj) / pobj[-1]
+        if gap < rtol:
             break
 
-        pobj = new_pobj
+        pobj.append(new_pobj)
 
-    return u0.reshape((-1, n_task)), v0.reshape((-1, n_task))
+    import pylab as pl
+    pl.plot(pobj)
+    pl.show()
+
+    return u0, v0
 
 
 if __name__ == '__main__':
