@@ -114,7 +114,7 @@ def low_rank(X, y, alpha, shape_u, Z=None, prior_u=None, u0=None, v0=None, rtol=
         return U, V, W
 
 
-def khatri_rao(a, b):
+def khatri_rao(a, b, ab=None):
     """
     Compute the Khatri-rao product, where the partition is taken to be
     the vectors along axis one.
@@ -125,30 +125,27 @@ def khatri_rao(a, b):
     ----------
     a : array, shape (n, p)
     b : array, shape (m, p)
+    ab : array, shape (nm, p), optimal
+        if given, result will be stored here
 
     Returns
     -------
-
+    a*b : array, shape (nm, p)
     """
-    res = np.empty((a.shape[0] * b.shape[0], a.shape[1]), dtype=np.float)
+    if ab is None:
+        res = np.empty((a.shape[0] * b.shape[0], a.shape[1]), dtype=np.float)
+    else:
+        res = ab
     for i in range(a.shape[0]):
         res[i * b.shape[0]:(i + 1) * b.shape[0]] = a[i, np.newaxis] * b
     return res
 
 
-    # res2 = []
-    # for i in range(a.shape[1]):
-    #     res2.append(np.kron(a[:, i], b[:, i]))
-    # res2 = np.vstack(res2).T
-    # assert np.allclose(res, res2)
-    # return res
-
-
-def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
+def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
     """
-    multi-target rank one
+    multi-target rank one model
 
-    ||y - X vec(u v.T)||_2 ^2
+        ||y - X vec(u v.T)||_2 ^2
 
     TODO: prior_u
 
@@ -156,13 +153,24 @@ def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1
     ----------
     X : sparse matrix, shape (n, p)
     Y : array-lime, shape (n, k)
-    size_u: integer
+    size_u : integer
         Must be divisor of p
+    u0 : array
+        Initial value for u
+    v0 : array
+        Initial value for v
+    rtol : float
+    maxiter : int
+        maximum number of iterations
+    verbose : bool
+        If True, prints the value of the objective
+        function at each iteration
 
     Returns
     -------
     U : array, shape (size_u, k)
-    V : array, shape (p / size_u
+    V : array, shape (p / size_u, k)
+    W : XXX
     """
 
     s = splinalg.svds(X, 1)[1][0]
@@ -170,8 +178,12 @@ def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1
     y = np.asarray(y)
     n_task = y.shape[1]
 
-    # .. some auxiliary functiones needed ..
-    # .. in the gradient descent ..
+    # .. check dimensions in input ..
+    if X.shape[0] != y.shape[0]:
+        raise ValueError('Wrong shape for X, y')
+
+    # .. some auxiliary functions ..
+    # .. used in gradient descent ..
     def matvec_1(a, b, n_task):
         """
         (a.T kron I_n) b
@@ -213,7 +225,7 @@ def rank_one(X, y, alpha, size_u, Z=None, prior_u=None, u0=None, v0=None, rtol=1
     counter = 0
     u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
-    while counter < maxiter: # this allows to set maxiter to infinity
+    while counter < maxiter:  # .. this allows to set maxiter to infinity ..
         counter += 1
 
         # .. update u0 ..
