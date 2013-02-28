@@ -141,6 +141,25 @@ def khatri_rao(a, b, ab=None):
     return res
 
 
+def CGNR(A, b, x0, n_iter):
+    """
+    Conjugate Gradient Normal Residual algorithm
+
+    Algorithm 8.4 "Iterative Methods for Sparse Linear Systems", Yousef Saad
+    """
+    r0 = b - A.matvec(x0)
+    z0 = A.rmatvec(r0)
+    p0 = z0
+    for i in range(n_iter):
+        w0 = A.matvec(p0)
+        alpha = (z0 * z0).sum() / (w0 * w0).sum()
+        x_new = x0 + alpha * p0
+        r_new = x0 - alpha * w0
+        z_new = A.rmatvec(r_new)
+        beta = (z_new * z_new).sum() / (z0 * z0).sum()
+        # p0 = z_new + beta *
+
+
 def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one model
@@ -173,7 +192,7 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     W : XXX
     """
 
-    s = splinalg.svds(X, 1)[1][0]
+    s = splinalg.svds(X, 1)[1][0]  # .. largest singular value ..
     X = splinalg.aslinearoperator(X)
     y = np.asarray(y)
     n_task = y.shape[1]
@@ -251,7 +270,14 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
                 break
         pobj.append(new_obj)
 
-    return u0, v0
+        if Z is not None:
+            # TODO: cache SVD(Z)
+            w0 = linalg.lstsq(Z, y - X.matvec(khatri_rao(v0, u0)))[0]
+
+    if Z is None:
+        return u0, v0
+    else:
+        return u0, v0, w0
 
 
 if __name__ == '__main__':
@@ -262,7 +288,7 @@ if __name__ == '__main__':
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
     y = np.array([i * y for i in range(1, 10)]).T
-    u, v = rank_one(X, y, .1, size_u, Z=None, verbose=True)
+    u, v, w0 = rank_one(X, y, .1, size_u, Z=np.random.randn(X.shape[0], 2), verbose=True)
 
     import pylab as plt
     plt.matshow(B)
