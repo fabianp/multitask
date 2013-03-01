@@ -267,20 +267,22 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         counter += 1
 
         # .. update u0 ..
-        u0, _ = CGNR(
+        u0, r0 = CGNR(
             lambda z: matmat(X, z, v0),
             lambda z: rmatmat1(X, v0, z), y, u0)
         if verbose:
             print 'OBJ %s' % obj(u0, v0)
+            print 'RESIDUAL %s' % r0
 
         # .. update v0 ..
-        v0, _ = CGNR(
+        v0, r1 = CGNR(
             lambda z: matmat(X, u0, z),
             lambda z: rmatmat2(X, u0, z), y, v0)
 
         new_obj = obj(u0, v0)
         if verbose:
             print 'OBJ %s' % new_obj
+            print 'RESIDUAL %s' % r1
         if len(pobj):
             incr = (pobj[-1] - new_obj) / pobj[-1]
             if incr < rtol:
