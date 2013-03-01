@@ -183,7 +183,7 @@ def CGNR(matmat, rmatmat, b, x0, maxiter=100, tol=1e-6):
     return x0, residuals
 
 
-def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
+def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one model
 
@@ -263,7 +263,8 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     counter = 0
     u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
-    while counter < maxiter:  # .. this allows to set maxiter to infinity ..
+    r0, r1 = [np.inf], [np.inf]
+    while counter < maxiter and (np.max(r0) + np.max(r1) > tol):
         counter += 1
 
         # .. update u0 ..
@@ -272,7 +273,7 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
             lambda z: rmatmat1(X, v0, z), y, u0)
         if verbose:
             print 'OBJ %s' % obj(u0, v0)
-            print 'RESIDUAL %s' % r0
+            print 'RESIDUAL %s' % r0.max()
 
         # .. update v0 ..
         v0, r1 = CGNR(
@@ -282,10 +283,10 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         new_obj = obj(u0, v0)
         if verbose:
             print 'OBJ %s' % new_obj
-            print 'RESIDUAL %s' % r1
+            print 'RESIDUAL %s' % r1.max()
         if len(pobj):
             incr = (pobj[-1] - new_obj) / pobj[-1]
-            if incr < rtol:
+            if incr < tol:
                 break
         pobj.append(new_obj)
 
