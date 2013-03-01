@@ -1,3 +1,4 @@
+# encoding: utf-8
 # .. License: Simplified BSD ..
 # .. Author: Fabian Pedregosa <fabian@fseoane.net> ..
 
@@ -141,23 +142,45 @@ def khatri_rao(a, b, ab=None):
     return res
 
 
-def CGNR(A, b, x0, n_iter):
+def CGNR(matmat, rmatmat, b, x0, maxiter=100, tol=1e-6):
     """
-    Conjugate Gradient Normal Residual algorithm
+    Parameters
+    ----------
+    matmat : callable
+        matmat(X) returns A.dot(X)
+    rmatmat : callable
+        rmatmat(X) returns A.T.dot(X)
+    b : array of shape (n, k)
 
-    Algorithm 8.4 "Iterative Methods for Sparse Linear Systems", Yousef Saad
+    Returns
+    -------
+    x : approximate solution, shape (n, k)
+    r : residual for the normal equation, shape (k,)
+
+    References
+    ----------
+    Yousef Saad, “Iterative Methods for Sparse Linear Systems, Second Edition”,
+    SIAM, pp. 151-172, pp. 272-275, 2003 http://www-users.cs.umn.edu/~saad/books.html
     """
-    r0 = b - A.matvec(x0)
-    z0 = A.rmatvec(r0)
-    p0 = z0
-    for i in range(n_iter):
-        w0 = A.matvec(p0)
-        alpha = (z0 * z0).sum() / (w0 * w0).sum()
-        x_new = x0 + alpha * p0
-        r_new = x0 - alpha * w0
-        z_new = A.rmatvec(r_new)
-        beta = (z_new * z_new).sum() / (z0 * z0).sum()
-        # p0 = z_new + beta *
+
+    r = b - matmat(x0)
+    z = rmatmat(r)
+    k = b.shape[1]
+    p = z
+    i = 0
+    residuals = np.inf
+    while i < maxiter and np.all(np.abs(residuals) > tol):
+        i += 1
+        w = matmat(p)
+        alpha = (z * z).sum(0) / (w * w).sum(0)
+        x0 += alpha.reshape((-1, k)) * p
+        r -= alpha * w
+        z_new = rmatmat(r)
+        beta = (z_new * z_new).sum(0) / (z * z).sum(0)
+        z = z_new
+        residuals = (z * z).sum(0)
+        p = z_new + beta.reshape((-1, k)) * p
+    return x0, residuals
 
 
 def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
@@ -192,7 +215,6 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     W : XXX
     """
 
-    s = splinalg.svds(X, 1)[1][0]  # .. largest singular value ..
     X = splinalg.aslinearoperator(X)
     y = np.asarray(y)
     n_task = y.shape[1]
@@ -202,43 +224,40 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         raise ValueError('Wrong shape for X, y')
 
     # .. some auxiliary functions ..
-    # .. used in gradient descent ..
-    def matvec_1(a, b, n_task):
-        """
-        (a.T kron I_n) b
-        """
-        B = b.reshape((n_task, -1, a.shape[1]), order='F')
-        return np.einsum("ijk, ik -> ij", B, a).T
-
-    def matvec_2(a, b, n_task):
-        """
-        (I kron a.T) b
-        """
-        B = b.reshape((n_task, -1, a.shape[1]), order='C')
-        res = np.einsum("ijk, ik -> ij", B, a)
-        return res
-
+    # .. used in conjugate gradient ..
     def obj(a, b):
         uv0 = khatri_rao(b, a)
         return .5 * linalg.norm(y - X.matvec(uv0), 'fro') ** 2
 
-    def grad_u(a, b, n_task):
+    def matmat(X, a, b):
+        """
+        X (b * a)
+        """
         uv0 = khatri_rao(b, a)
-        tmp1 = Xy - X.rmatvec(X.matvec(uv0))
-        res = -matvec_1(b.T, tmp1.T, n_task)
+        return X.matvec(uv0)
+
+    def rmatmat1(X, a, b):
+        """
+        (I kron a^T) X^T b
+        """
+        b = X.rmatvec(b).T
+        B = b.reshape((n_task, -1, a.shape[0]), order='F')
+        res = np.einsum("ijk, ik -> ij", B, a.T).T
         return res
 
-    def grad_v(a, b, n_task):
-        uv0 = khatri_rao(b, a)
-        tmp1 = Xy - X.rmatvec(X.matvec(uv0))
-        return - matvec_2(a.T, tmp1.T, n_task).T
+    def rmatmat2(X, a, b):
+        """
+        (a^T kron I) X^T b
+        """
+        b = X.rmatvec(b).T
+        B = b.reshape((n_task, -1, a.shape[0]), order='C')
+        tmp = np.einsum("ijk, ik -> ij", B, a.T).T
+        return tmp
 
     if u0 is None:
         u0 = np.ones(size_u * n_task)
     if v0 is None:
         v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
-
-    Xy = X.rmatvec(y)
 
     pobj = []
     counter = 0
@@ -248,18 +267,16 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         counter += 1
 
         # .. update u0 ..
-        v0_norm2 = (v0 * v0).sum(0)
-        step_size = 1. / (s * s * v0_norm2)
-        for i in range(10):
-            u0 -= step_size.reshape((1, n_task)) * grad_u(u0, v0, n_task)
+        u0, _ = CGNR(
+            lambda z: matmat(X, z, v0),
+            lambda z: rmatmat1(X, v0, z), y, u0)
         if verbose:
             print 'OBJ %s' % obj(u0, v0)
 
         # .. update v0 ..
-        u0_norm2 = (u0 * u0).sum(0)
-        step_size = 1. / (s * s * u0_norm2)
-        for i in range(10):
-            v0 -= step_size.reshape((1, n_task)) * grad_v(u0, v0, n_task)
+        v0, _ = CGNR(
+            lambda z: matmat(X, u0, z),
+            lambda z: rmatmat2(X, u0, z), y, v0)
 
         new_obj = obj(u0, v0)
         if verbose:
