@@ -169,7 +169,7 @@ def CGNR(matmat, rmatmat, b, x0, maxiter=100, tol=1e-6):
     p = z
     i = 0
     residuals = np.inf
-    while i < maxiter and np.all(np.abs(residuals) > tol):
+    while i < maxiter and np.any(np.abs(residuals) > tol):
         i += 1
         w = matmat(p)
         alpha = (z * z).sum(0) / (w * w).sum(0)
@@ -267,23 +267,23 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e
     while counter < maxiter and (np.max(r0) + np.max(r1) > tol):
         counter += 1
 
-        # .. update u0 ..
-        u0, r0 = CGNR(
-            lambda z: matmat(X, z, v0),
-            lambda z: rmatmat1(X, v0, z), y, u0)
-        if verbose:
-            print 'OBJ %s' % obj(u0, v0)
-            print 'RESIDUAL %s' % r0.max()
-
         # .. update v0 ..
-        v0, r1 = CGNR(
+        v0, rv = CGNR(
             lambda z: matmat(X, u0, z),
-            lambda z: rmatmat2(X, u0, z), y, v0)
+            lambda z: rmatmat2(X, u0, z), y, v0, maxiter=1000, tol=.1)
+
+        # .. update u0 ..
+        u0, ru = CGNR(
+            lambda z: matmat(X, z, v0),
+            lambda z: rmatmat1(X, v0, z), y, u0, maxiter=1000, tol=.1)
 
         new_obj = obj(u0, v0)
         if verbose:
+            # .. need to recompute rv for new u0 ..
+            rv = rmatmat2(X, u0, matmat(X, u0, v0) - y)
             print 'OBJ %s' % new_obj
-            print 'RESIDUAL %s' % r1.max()
+            print 'RESIDUAL %s' % (np.abs(ru) + np.abs(rv)).max()
+
         if len(pobj):
             incr = (pobj[-1] - new_obj) / pobj[-1]
             if incr < tol:
