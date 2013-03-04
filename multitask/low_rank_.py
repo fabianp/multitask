@@ -141,8 +141,8 @@ def khatri_rao(a, b, ab=None):
         res[i * b.shape[0]:(i + 1) * b.shape[0]] = a[i, np.newaxis] * b
     return res
 
-
-def CGNR(matmat, rmatmat, b, x0, maxiter=100, tol=1e-6):
+@profile
+def CGNR(matmat, rmatmat, b, x0, maxiter=100, rtol=1e-6):
     """
     Parameters
     ----------
@@ -169,7 +169,8 @@ def CGNR(matmat, rmatmat, b, x0, maxiter=100, tol=1e-6):
     p = z
     i = 0
     residuals = np.inf
-    while i < maxiter and np.any(np.abs(residuals) > tol):
+    while i < maxiter and np.any(np.abs(residuals) > b.shape[1] * linalg.norm(x0, 'fro') * rtol):
+        print i
         i += 1
         w = matmat(p)
         alpha = (z * z).sum(0) / (w * w).sum(0)
@@ -183,7 +184,7 @@ def CGNR(matmat, rmatmat, b, x0, maxiter=100, tol=1e-6):
     return x0, residuals
 
 
-def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e-6, maxiter=1000, verbose=False):
+def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one model
 
@@ -259,36 +260,31 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e
     if v0 is None:
         v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
-    pobj = []
     counter = 0
     u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
-    r0, r1 = [np.inf], [np.inf]
-    while counter < maxiter and (np.max(r0) + np.max(r1) > tol):
+    rtol0 = np.inf
+    while counter < maxiter and (rtol0 > rtol):
         counter += 1
 
         # .. update v0 ..
         v0, rv = CGNR(
             lambda z: matmat(X, u0, z),
-            lambda z: rmatmat2(X, u0, z), y, v0, maxiter=1000, tol=.1)
+            lambda z: rmatmat2(X, u0, z), y, v0, maxiter=np.inf, rtol=.1)
 
         # .. update u0 ..
         u0, ru = CGNR(
             lambda z: matmat(X, z, v0),
-            lambda z: rmatmat1(X, v0, z), y, u0, maxiter=1000, tol=.1)
+            lambda z: rmatmat1(X, v0, z), y, u0, maxiter=np.inf, rtol=.1)
 
-        new_obj = obj(u0, v0)
+        # .. need to recompute rv for new u0 ..
+        rv = rmatmat2(X, u0, matmat(X, u0, v0) - y)
+        rtol0 = (np.abs(ru).max() + np.abs(rv).max()) / (linalg.norm(u0, 'fro') + linalg.norm(v0, 'fro'))
         if verbose:
-            # .. need to recompute rv for new u0 ..
-            rv = rmatmat2(X, u0, matmat(X, u0, v0) - y)
-            print 'OBJ %s' % new_obj
-            print 'RESIDUAL %s' % (np.abs(ru) + np.abs(rv)).max()
+            print 'RELATIVE TOLERANCE: %s' % rtol0
 
-        if len(pobj):
-            incr = (pobj[-1] - new_obj) / pobj[-1]
-            if incr < tol:
-                break
-        pobj.append(new_obj)
+        if rtol0 < rtol:
+            break
 
         if Z is not None:
             # TODO: cache SVD(Z)
