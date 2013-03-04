@@ -115,7 +115,7 @@ def low_rank(X, y, alpha, shape_u, Z=None, prior_u=None, u0=None, v0=None, rtol=
         return U, V, W
 
 
-def khatri_rao(a, b, ab=None):
+def khatri_rao(V, U):
     """
     Compute the Khatri-rao product, where the partition is taken to be
     the vectors along axis one.
@@ -133,13 +133,12 @@ def khatri_rao(a, b, ab=None):
     -------
     a*b : array, shape (nm, p)
     """
-    if ab is None:
-        res = np.empty((a.shape[0] * b.shape[0], a.shape[1]), dtype=np.float)
-    else:
-        res = ab
-    for i in range(a.shape[0]):
-        res[i * b.shape[0]:(i + 1) * b.shape[0]] = a[i, np.newaxis] * b
-    return res
+     num_targets = V.shape[1]
+    assert U.shape[1] == num_targets
+    return (V.T[:, :, np.newaxis] * U.T[:, np.newaxis, :]
+            ).reshape(num_targets, len(U) * len(V)).T
+
+
 
 @profile
 def CGNR(matmat, rmatmat, b, x0, maxiter=100, rtol=1e-6):
