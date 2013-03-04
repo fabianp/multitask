@@ -177,10 +177,56 @@ def CGNR(matmat, rmatmat, b, x0, maxiter=100, rtol=1e-6):
         z = z_new
         residuals = (z * z).sum(0)
         p = z_new + beta.reshape((-1, k)) * p
+        #print linalg.norm(residuals)
     return x0, residuals
 
 
-def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
+def PCGNR(matmat, rmatmat, b, x0, M, maxiter=100, rtol=1e-6):
+    """
+    Parameters
+    ----------
+    matmat : callable
+        matmat(X) returns A.dot(X)
+    rmatmat : callable
+        rmatmat(X) returns A.T.dot(X)
+    b : array of shape (n, k)
+
+    Returns
+    -------
+    x : approximate solution, shape (n, k)
+    r : residual for the normal equation, shape (k,)
+
+    References
+    ----------
+    Yousef Saad, “Iterative Methods for Sparse Linear Systems, Second Edition”,
+    SIAM, pp. 151-172, pp. 272-275, 2003 http://www-users.cs.umn.edu/~saad/books.html
+    """
+
+    r = b - matmat(x0)
+    r_tilde = rmatmat(r)
+    z = M.matmat(r_tilde)
+    k = b.shape[1]
+    p = z
+    i = 0
+    residuals = np.inf
+    while i < maxiter and np.any(np.abs(residuals) > b.shape[1] * linalg.norm(x0, 'fro') * rtol):
+        i += 1
+        w = matmat(p)
+        alpha = (z * r_tilde).sum(0) / (w * w).sum(0)
+        x0 += alpha.reshape((-1, k)) * p
+        r -= alpha * w
+        r_tilde_new = rmatmat(r)
+        z_new = M.matmat(r_tilde_new)
+        beta = (z_new * r_tilde_new).sum(0) / (z * r_tilde).sum(0)
+        z = z_new
+        r_tilde = r_tilde_new
+        residuals = (z * z).sum(0)
+        p = z_new + beta.reshape((-1, k)) * p
+        #print 'P', linalg.norm(residuals)
+    return x0, residuals
+
+
+def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, Mv=None, rtol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one model
 
@@ -204,6 +250,8 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     verbose : bool
         If True, prints the value of the objective
         function at each iteration
+    Mv : LinearOperator
+        preconditioner for the least squares problem ||y - X(I \kron v)u||
 
     Returns
     -------
@@ -211,7 +259,8 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     V : array, shape (p / size_u, k)
     W : XXX
     """
-
+    if Mv is not None:
+        Mv = splinalg.aslinearoperator(Mv)
     X = splinalg.aslinearoperator(X)
     y = np.asarray(y)
     n_task = y.shape[1]
@@ -226,14 +275,14 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         uv0 = khatri_rao(b, a)
         return .5 * linalg.norm(y - X.matvec(uv0), 'fro') ** 2
 
-    def matmat(X, a, b):
+    def matmat(X, a, b, n_task):
         """
         X (b * a)
         """
         uv0 = khatri_rao(b, a)
         return X.matvec(uv0)
 
-    def rmatmat1(X, a, b):
+    def rmatmat1(X, a, b, n_task):
         """
         (I kron a^T) X^T b
         """
@@ -242,7 +291,7 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         res = np.einsum("ijk, ik -> ij", B, a.T).T
         return res
 
-    def rmatmat2(X, a, b):
+    def rmatmat2(X, a, b, n_task):
         """
         (a^T kron I) X^T b
         """
@@ -254,37 +303,47 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     if u0 is None:
         u0 = np.ones(size_u * n_task)
     if v0 is None:
-        v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
+        v0 = np.zeros(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
     counter = 0
     u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
     rtol0 = np.inf
+
     while counter < maxiter and (rtol0 > rtol):
         counter += 1
 
         # .. update v0 ..
-        v0, res_v = CGNR(
-            lambda z: matmat(X, u0, z),
-            lambda z: rmatmat2(X, u0, z), y, v0, maxiter=np.inf, rtol=.1)
+        if Mv is not None:
+            v0, res_v = PCGNR(
+                lambda z: matmat(X, u0, z, n_task),
+                lambda z: rmatmat2(X, u0, z, n_task),
+                y, v0, Mv, maxiter=np.inf, rtol=rtol * 1e-3)
+        else:
+            v0, res_v = CGNR(
+                lambda z: matmat(X, u0, z, n_task),
+                lambda z: rmatmat2(X, u0, z, n_task),
+                y, v0, maxiter=np.inf, rtol=rtol * 1e-3)
 
         # .. update u0 ..
         u0, res_u = CGNR(
-            lambda z: matmat(X, z, v0),
-            lambda z: rmatmat1(X, v0, z), y, u0, maxiter=np.inf, rtol=.1)
+            lambda z: matmat(X, z, v0, n_task),
+            lambda z: rmatmat1(X, v0, z, n_task),
+            y, u0, maxiter=np.inf, rtol=.1)
+#        u0 = (u0.T / (u0 * u0).sum(1)).T
+
+        if Z is not None:
+            # TODO: cache SVD(Z)
+            w0 = linalg.lstsq(Z, y - X.matvec(khatri_rao(v0, u0)))[0]
 
         # .. need to recompute rv for new u0 ..
-        res_v = rmatmat2(X, u0, matmat(X, u0, v0) - y)
+        res_v = rmatmat2(X, u0, matmat(X, u0, v0, n_task) - y, n_task)
         rtol0 = (np.abs(res_u).max() + np.abs(res_v).max()) / (linalg.norm(u0, 'fro') + linalg.norm(v0, 'fro'))
         if verbose:
             print 'RELATIVE TOLERANCE: %s' % rtol0
 
         if rtol0 < rtol:
             break
-
-        if Z is not None:
-            # TODO: cache SVD(Z)
-            w0 = linalg.lstsq(Z, y - X.matvec(khatri_rao(v0, u0)))[0]
 
     if Z is None:
         return u0, v0
