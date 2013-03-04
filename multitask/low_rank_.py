@@ -115,7 +115,7 @@ def low_rank(X, y, alpha, shape_u, Z=None, prior_u=None, u0=None, v0=None, rtol=
         return U, V, W
 
 
-def khatri_rao(V, U):
+def khatri_rao(A, B):
     """
     Compute the Khatri-rao product, where the partition is taken to be
     the vectors along axis one.
@@ -124,23 +124,21 @@ def khatri_rao(V, U):
 
     Parameters
     ----------
-    a : array, shape (n, p)
-    b : array, shape (m, p)
-    ab : array, shape (nm, p), optimal
+    A : array, shape (n, p)
+    B : array, shape (m, p)
+    AB : array, shape (nm, p), optimal
         if given, result will be stored here
 
     Returns
     -------
     a*b : array, shape (nm, p)
     """
-     num_targets = V.shape[1]
-    assert U.shape[1] == num_targets
-    return (V.T[:, :, np.newaxis] * U.T[:, np.newaxis, :]
-            ).reshape(num_targets, len(U) * len(V)).T
+    num_targets = A.shape[1]
+    assert B.shape[1] == num_targets
+    return (A.T[:, :, np.newaxis] * B.T[:, np.newaxis, :]
+            ).reshape(num_targets, len(B) * len(A)).T
 
 
-
-@profile
 def CGNR(matmat, rmatmat, b, x0, maxiter=100, rtol=1e-6):
     """
     Parameters
@@ -169,7 +167,6 @@ def CGNR(matmat, rmatmat, b, x0, maxiter=100, rtol=1e-6):
     i = 0
     residuals = np.inf
     while i < maxiter and np.any(np.abs(residuals) > b.shape[1] * linalg.norm(x0, 'fro') * rtol):
-        print i
         i += 1
         w = matmat(p)
         alpha = (z * z).sum(0) / (w * w).sum(0)
@@ -267,18 +264,18 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         counter += 1
 
         # .. update v0 ..
-        v0, rv = CGNR(
+        v0, res_v = CGNR(
             lambda z: matmat(X, u0, z),
             lambda z: rmatmat2(X, u0, z), y, v0, maxiter=np.inf, rtol=.1)
 
         # .. update u0 ..
-        u0, ru = CGNR(
+        u0, res_u = CGNR(
             lambda z: matmat(X, z, v0),
             lambda z: rmatmat1(X, v0, z), y, u0, maxiter=np.inf, rtol=.1)
 
         # .. need to recompute rv for new u0 ..
-        rv = rmatmat2(X, u0, matmat(X, u0, v0) - y)
-        rtol0 = (np.abs(ru).max() + np.abs(rv).max()) / (linalg.norm(u0, 'fro') + linalg.norm(v0, 'fro'))
+        res_v = rmatmat2(X, u0, matmat(X, u0, v0) - y)
+        rtol0 = (np.abs(res_u).max() + np.abs(res_v).max()) / (linalg.norm(u0, 'fro') + linalg.norm(v0, 'fro'))
         if verbose:
             print 'RELATIVE TOLERANCE: %s' % rtol0
 
