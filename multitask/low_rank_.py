@@ -162,22 +162,23 @@ def CGNR(matmat, rmatmat, b, x0, maxiter=100, rtol=1e-6):
 
     r = b - matmat(x0)
     z = rmatmat(r)
-    k = b.shape[1]
+    n_task = b.shape[1]
     p = z
     i = 0
     residuals = np.inf
-    while i < maxiter and np.any(np.abs(residuals) > b.shape[1] * linalg.norm(x0, 'fro') * rtol):
+    while i < maxiter and np.any(np.abs(residuals) > linalg.norm(x0, 'fro') * rtol):
         i += 1
         w = matmat(p)
-        alpha = (z * z).sum(0) / (w * w).sum(0)
-        x0 += alpha.reshape((-1, k)) * p
+        tmp = (w * w).sum(0)
+        tmp[np.abs(tmp) < np.finfo(np.float).eps] = np.finfo(np.float).eps
+        alpha = (z * z).sum(0) / tmp
+        x0 += alpha.reshape((-1, n_task)) * p
         r -= alpha * w
         z_new = rmatmat(r)
         beta = (z_new * z_new).sum(0) / (z * z).sum(0)
         z = z_new
         residuals = (z * z).sum(0)
-        p = z_new + beta.reshape((-1, k)) * p
-        #print linalg.norm(residuals)
+        p = z_new + beta.reshape((-1, n_task)) * p
     return x0, residuals
 
 
@@ -212,7 +213,9 @@ def PCGNR(matmat, rmatmat, b, x0, M, maxiter=100, rtol=1e-6):
     while i < maxiter and np.any(np.abs(residuals) > b.shape[1] * linalg.norm(x0, 'fro') * rtol):
         i += 1
         w = matmat(p)
-        alpha = (z * r_tilde).sum(0) / (w * w).sum(0)
+        tmp = (w * w).sum(0)
+        tmp[np.abs(tmp) < np.finfo(np.float).eps] = np.finfo(np.float).eps
+        alpha = (z * r_tilde).sum(0) / tmp
         x0 += alpha.reshape((-1, k)) * p
         r -= alpha * w
         r_tilde_new = rmatmat(r)
@@ -251,7 +254,7 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, Mv=Non
         If True, prints the value of the objective
         function at each iteration
     Mv : LinearOperator
-        preconditioner for the least squares problem ||y - X(I \kron v)u||
+        preconditioner for the least squares problem ||y - X(u \kron I)v||
 
     Returns
     -------
@@ -264,6 +267,7 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, Mv=Non
     X = splinalg.aslinearoperator(X)
     y = np.asarray(y)
     n_task = y.shape[1]
+    prior_u /= prior_u.max()
 
     # .. check dimensions in input ..
     if X.shape[0] != y.shape[0]:
@@ -275,7 +279,16 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, Mv=Non
         uv0 = khatri_rao(b, a)
         return .5 * linalg.norm(y - X.matvec(uv0), 'fro') ** 2
 
-    def matmat(X, a, b, n_task):
+    def matmat1(X, a, b, n_task):
+        """
+        X (b * a) with regularization
+        """
+        uv0 = khatri_rao(b, a)
+        t0 = X.matvec(uv0)
+        tmp = np.vstack((t0, np.sqrt(alpha) * a))
+        return tmp
+
+    def matmat2(X, a, b, n_task):
         """
         X (b * a)
         """
@@ -286,24 +299,29 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, Mv=Non
         """
         (I kron a^T) X^T b
         """
-        b = X.rmatvec(b).T
-        B = b.reshape((n_task, -1, a.shape[0]), order='F')
+        b1 = X.rmatvec(b[:X.shape[0]]).T
+        B = b1.reshape((n_task, -1, a.shape[0]), order='F')
         res = np.einsum("ijk, ik -> ij", B, a.T).T
+        res += np.sqrt(alpha) * b[X.shape[0]:]
         return res
 
     def rmatmat2(X, a, b, n_task):
         """
         (a^T kron I) X^T b
         """
-        b = X.rmatvec(b).T
-        B = b.reshape((n_task, -1, a.shape[0]), order='C')
+        b1 = X.rmatvec(b).T
+        B = b1.reshape((n_task, -1, a.shape[0]), order='C')
         tmp = np.einsum("ijk, ik -> ij", B, a.T).T
         return tmp
 
     if u0 is None:
         u0 = np.ones(size_u * n_task)
     if v0 is None:
-        v0 = np.zeros(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
+        v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
+
+    Y = np.empty((y.shape[0] + prior_u.size, y.shape[1]))
+    Y[:y.shape[0], :] = y
+    Y[y.shape[0]:, :] = alpha * prior_u.reshape((-1, 1))
 
     counter = 0
     u0 = u0.reshape((-1, n_task))
@@ -316,28 +334,32 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, Mv=Non
         # .. update v0 ..
         if Mv is not None:
             v0, res_v = PCGNR(
-                lambda z: matmat(X, u0, z, n_task),
+                lambda z: matmat2(X, u0, z, n_task),
                 lambda z: rmatmat2(X, u0, z, n_task),
                 y, v0, Mv, maxiter=np.inf, rtol=rtol * 1e-3)
         else:
             v0, res_v = CGNR(
-                lambda z: matmat(X, u0, z, n_task),
+                lambda z: matmat2(X, u0, z, n_task),
                 lambda z: rmatmat2(X, u0, z, n_task),
                 y, v0, maxiter=np.inf, rtol=rtol * 1e-3)
 
         # .. update u0 ..
         u0, res_u = CGNR(
-            lambda z: matmat(X, z, v0, n_task),
+            lambda z: matmat1(X, z, v0, n_task),
             lambda z: rmatmat1(X, v0, z, n_task),
-            y, u0, maxiter=np.inf, rtol=.1)
-#        u0 = (u0.T / (u0 * u0).sum(1)).T
+            Y, u0, maxiter=np.inf, rtol=rtol * 1e-3)
+        # u0 = (u0.T / u0.max(axis=1)).T
+        # for j in range(u0.shape[1]):
+        #     mmax = np.argmax(u0[:, j])
+        #     if u0[mmax, j] < 0:
+        #         u0[:, j] = - u0[:, j]
 
         if Z is not None:
             # TODO: cache SVD(Z)
             w0 = linalg.lstsq(Z, y - X.matvec(khatri_rao(v0, u0)))[0]
 
         # .. need to recompute rv for new u0 ..
-        res_v = rmatmat2(X, u0, matmat(X, u0, v0, n_task) - y, n_task)
+        res_v = rmatmat2(X, u0, matmat2(X, u0, v0, n_task) - y, n_task)
         rtol0 = (np.abs(res_u).max() + np.abs(res_v).max()) / (linalg.norm(u0, 'fro') + linalg.norm(v0, 'fro'))
         if verbose:
             print 'RELATIVE TOLERANCE: %s' % rtol0
