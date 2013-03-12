@@ -115,7 +115,7 @@ def low_rank(X, y, alpha, shape_u, Z=None, prior_u=None, u0=None, v0=None, rtol=
         return U, V, W
 
 
-def khatri_rao(a, b, ab=None):
+def khatri_rao(A, B):
     """
     Compute the Khatri-rao product, where the partition is taken to be
     the vectors along axis one.
@@ -124,25 +124,22 @@ def khatri_rao(a, b, ab=None):
 
     Parameters
     ----------
-    a : array, shape (n, p)
-    b : array, shape (m, p)
-    ab : array, shape (nm, p), optimal
+    A : array, shape (n, p)
+    B : array, shape (m, p)
+    AB : array, shape (nm, p), optimal
         if given, result will be stored here
 
     Returns
     -------
     a*b : array, shape (nm, p)
     """
-    if ab is None:
-        res = np.empty((a.shape[0] * b.shape[0], a.shape[1]), dtype=np.float)
-    else:
-        res = ab
-    for i in range(a.shape[0]):
-        res[i * b.shape[0]:(i + 1) * b.shape[0]] = a[i, np.newaxis] * b
-    return res
+    num_targets = A.shape[1]
+    assert B.shape[1] == num_targets
+    return (A.T[:, :, np.newaxis] * B.T[:, np.newaxis, :]
+            ).reshape(num_targets, len(B) * len(A)).T
 
 
-def CGNR(matmat, rmatmat, b, x0, maxiter=100, tol=1e-6):
+def CGNR(matmat, rmatmat, b, x0, maxiter=100, rtol=1e-6):
     """
     Parameters
     ----------
@@ -165,21 +162,70 @@ def CGNR(matmat, rmatmat, b, x0, maxiter=100, tol=1e-6):
 
     r = b - matmat(x0)
     z = rmatmat(r)
-    k = b.shape[1]
+    n_task = b.shape[1]
     p = z
     i = 0
     residuals = np.inf
-    while i < maxiter and np.all(np.abs(residuals) > tol):
+    while i < maxiter and np.any(np.abs(residuals) > linalg.norm(x0, 'fro') * rtol):
         i += 1
         w = matmat(p)
-        alpha = (z * z).sum(0) / (w * w).sum(0)
-        x0 += alpha.reshape((-1, k)) * p
+        tmp = (w * w).sum(0)
+        tmp[np.abs(tmp) < np.finfo(np.float).eps] = np.finfo(np.float).eps
+        alpha = (z * z).sum(0) / tmp
+        x0 += alpha.reshape((-1, n_task)) * p
         r -= alpha * w
         z_new = rmatmat(r)
         beta = (z_new * z_new).sum(0) / (z * z).sum(0)
         z = z_new
         residuals = (z * z).sum(0)
+        p = z_new + beta.reshape((-1, n_task)) * p
+    return x0, residuals
+
+
+def PCGNR(matmat, rmatmat, b, x0, M, maxiter=100, rtol=1e-6):
+    """
+    Parameters
+    ----------
+    matmat : callable
+        matmat(X) returns A.dot(X)
+    rmatmat : callable
+        rmatmat(X) returns A.T.dot(X)
+    b : array of shape (n, k)
+
+    Returns
+    -------
+    x : approximate solution, shape (n, k)
+    r : residual for the normal equation, shape (k,)
+
+    References
+    ----------
+    Yousef Saad, “Iterative Methods for Sparse Linear Systems, Second Edition”,
+    SIAM, pp. 151-172, pp. 272-275, 2003 http://www-users.cs.umn.edu/~saad/books.html
+    """
+
+    r = b - matmat(x0)
+    r_tilde = rmatmat(r)
+    z = M.matmat(r_tilde)
+    k = b.shape[1]
+    p = z
+    i = 0
+    residuals = np.inf
+    while i < maxiter and np.any(np.abs(residuals) > b.shape[1] * linalg.norm(x0, 'fro') * rtol):
+        i += 1
+        w = matmat(p)
+        tmp = (w * w).sum(0)
+        tmp[np.abs(tmp) < np.finfo(np.float).eps] = np.finfo(np.float).eps
+        alpha = (z * r_tilde).sum(0) / tmp
+        x0 += alpha.reshape((-1, k)) * p
+        r -= alpha * w
+        r_tilde_new = rmatmat(r)
+        z_new = M.matmat(r_tilde_new)
+        beta = (z_new * r_tilde_new).sum(0) / (z * r_tilde).sum(0)
+        z = z_new
+        r_tilde = r_tilde_new
+        residuals = (z * z).sum(0)
         p = z_new + beta.reshape((-1, k)) * p
+        #print 'P', linalg.norm(residuals)
     return x0, residuals
 
 
@@ -207,6 +253,8 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e
     verbose : bool
         If True, prints the value of the objective
         function at each iteration
+    Mv : LinearOperator
+        preconditioner for the least squares problem ||y - X(u \kron I)v||
 
     Returns
     -------
@@ -231,28 +279,38 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e
         uv0 = khatri_rao(b, a)
         return .5 * linalg.norm(Y - X.matvec(uv0), 'fro') ** 2
 
-    def matmat(X, a, b):
+    def matmat1(X, a, b, n_task):
+        """
+        X (b * a) with regularization
+        """
+        uv0 = khatri_rao(b, a)
+        t0 = X.matvec(uv0)
+        tmp = np.vstack((t0, np.sqrt(alpha) * a))
+        return tmp
+
+    def matmat2(X, a, b, n_task):
         """
         X (b * a)
         """
         uv0 = khatri_rao(b, a)
         return X.matvec(uv0)
 
-    def rmatmat1(X, a, b):
+    def rmatmat1(X, a, b, n_task):
         """
         (I kron a^T) X^T b
         """
-        b = X.rmatvec(b).T
-        B = b.reshape((n_task, -1, a.shape[0]), order='F')
+        b1 = X.rmatvec(b[:X.shape[0]]).T
+        B = b1.reshape((n_task, -1, a.shape[0]), order='F')
         res = np.einsum("ijk, ik -> ij", B, a.T).T
+        #res += np.sqrt(alpha) * b[X.shape[0]:]
         return res
 
-    def rmatmat2(X, a, b):
+    def rmatmat2(X, a, b, n_task):
         """
         (a^T kron I) X^T b
         """
-        b = X.rmatvec(b).T
-        B = b.reshape((n_task, -1, a.shape[0]), order='C')
+        b1 = X.rmatvec(b).T
+        B = b1.reshape((n_task, -1, a.shape[0]), order='C')
         tmp = np.einsum("ijk, ik -> ij", B, a.T).T
         return tmp
 
@@ -277,10 +335,10 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e
     def fprime(w):
         W = w.reshape((-1, n_task), order='F')
         u, v = W[:size_u], W[size_u:]
-        tmp = Y - matmat(X, u, v)
+        tmp = Y - matmat2(X, u, v, n_task)
         grad = np.empty((size_u + size_v, n_task))  # TODO: do outside
-        grad[:size_u] = rmatmat1(X, v, tmp)
-        grad[size_u:] = rmatmat2(X, u, tmp)
+        grad[:size_u] = rmatmat1(X, v, tmp, n_task)
+        grad[size_u:] = rmatmat2(X, u, tmp, n_task)
         return - grad.reshape((-1,), order='F')
 
 
