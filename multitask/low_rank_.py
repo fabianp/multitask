@@ -229,7 +229,7 @@ def PCGNR(matmat, rmatmat, b, x0, M, maxiter=100, rtol=1e-6):
     return x0, residuals
 
 
-def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e-6, maxiter=1000, verbose=False):
+def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one model
 
@@ -319,6 +319,7 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e
     if v0 is None:
         v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
+    size_v = X.shape[1] / size_u
     u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
     w0 = np.empty((size_u + size_v, n_task))
@@ -342,8 +343,10 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e
         return - grad.reshape((-1,), order='F')
 
 
-    out = optimize.fmin_bfgs(f, w0, fprime=fprime, disp=True)
-    W = out.reshape((-1, n_task), order='F')
+    def call(x):
+        print('OBJ %s' % f(x))
+    out = optimize.minimize(f, w0, jac=fprime, tol=rtol, callback=call, method='L-BFGS-B')
+    W = out.x.reshape((-1, n_task), order='F')
     if Z is not None:
         return W[:size_u], W[size_u:], None
     else:
