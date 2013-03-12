@@ -183,7 +183,7 @@ def CGNR(matmat, rmatmat, b, x0, maxiter=100, tol=1e-6):
     return x0, residuals
 
 
-def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e-6, maxiter=1000, verbose=False):
+def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one model
 
@@ -216,18 +216,20 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e
     """
 
     X = splinalg.aslinearoperator(X)
-    y = np.asarray(y)
-    n_task = y.shape[1]
+    Y = np.asarray(Y)
+    if Y.ndim == 1:
+        Y = Y.reshape((-1, 1))
+    n_task = Y.shape[1]
 
     # .. check dimensions in input ..
-    if X.shape[0] != y.shape[0]:
+    if X.shape[0] != Y.shape[0]:
         raise ValueError('Wrong shape for X, y')
 
     # .. some auxiliary functions ..
     # .. used in conjugate gradient ..
     def obj(a, b):
         uv0 = khatri_rao(b, a)
-        return .5 * linalg.norm(y - X.matvec(uv0), 'fro') ** 2
+        return .5 * linalg.norm(Y - X.matvec(uv0), 'fro') ** 2
 
     def matmat(X, a, b):
         """
@@ -259,45 +261,35 @@ def rank_one(X, y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, tol=1e
     if v0 is None:
         v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
-    pobj = []
-    counter = 0
     u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
-    r0, r1 = [np.inf], [np.inf]
-    while counter < maxiter and (np.max(r0) + np.max(r1) > tol):
-        counter += 1
+    w0 = np.empty((size_u + size_v, n_task))
+    w0[:size_u] = u0
+    w0[size_u:] = v0
+    w0[size_u:] = v0
+    w0 = w0.reshape((-1,), order='F')
 
-        # .. update u0 ..
-        u0, r0 = CGNR(
-            lambda z: matmat(X, z, v0),
-            lambda z: rmatmat1(X, v0, z), y, u0)
-        if verbose:
-            print 'OBJ %s' % obj(u0, v0)
-            print 'RESIDUAL %s' % r0.max()
+    def f(w):
+        W = w.reshape((-1, n_task), order='F')
+        u, v = W[:size_u], W[size_u:]
+        return obj(u, v)
 
-        # .. update v0 ..
-        v0, r1 = CGNR(
-            lambda z: matmat(X, u0, z),
-            lambda z: rmatmat2(X, u0, z), y, v0)
+    def fprime(w):
+        W = w.reshape((-1, n_task), order='F')
+        u, v = W[:size_u], W[size_u:]
+        tmp = Y - matmat(X, u, v)
+        grad = np.empty((size_u + size_v, n_task))  # TODO: do outside
+        grad[:size_u] = rmatmat1(X, v, tmp)
+        grad[size_u:] = rmatmat2(X, u, tmp)
+        return - grad.reshape((-1,), order='F')
 
-        new_obj = obj(u0, v0)
-        if verbose:
-            print 'OBJ %s' % new_obj
-            print 'RESIDUAL %s' % r1.max()
-        if len(pobj):
-            incr = (pobj[-1] - new_obj) / pobj[-1]
-            if incr < tol:
-                break
-        pobj.append(new_obj)
 
-        if Z is not None:
-            # TODO: cache SVD(Z)
-            w0 = linalg.lstsq(Z, y - X.matvec(khatri_rao(v0, u0)))[0]
-
-    if Z is None:
-        return u0, v0
+    out = optimize.fmin_bfgs(f, w0, fprime=fprime, disp=True)
+    W = out.reshape((-1, n_task), order='F')
+    if Z is not None:
+        return W[:size_u], W[size_u:], None
     else:
-        return u0, v0, w0
+        return W[:size_u], W[size_u:]
 
 
 if __name__ == '__main__':
@@ -307,7 +299,7 @@ if __name__ == '__main__':
     u_true, v_true = np.random.rand(size_u, 2), 1 + .1 * np.random.randn(size_v, 2)
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
-    y = np.array([i * y for i in range(1, 10)]).T
+    #y = np.array([i * y for i in range(1, 10)]).T
     u, v, w0 = rank_one(X, y, .1, size_u, Z=np.random.randn(X.shape[0], 2), verbose=True)
 
     import pylab as plt
