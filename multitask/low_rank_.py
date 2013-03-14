@@ -353,6 +353,136 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         return W[:size_u], W[size_u:]
 
 
+
+def rank_one_v2(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
+    """
+    multi-target rank one model
+
+        ||y - X vec(u v.T)||_2 ^2
+
+    TODO: prior_u
+
+    Parameters
+    ----------
+    X : sparse matrix, shape (n, p)
+    Y : array-lime, shape (n, k)
+    size_u : integer
+        Must be divisor of p
+    u0 : array
+        Initial value for u
+    v0 : array
+        Initial value for v
+    rtol : float
+    maxiter : int
+        maximum number of iterations
+    verbose : bool
+        If True, prints the value of the objective
+        function at each iteration
+    Mv : LinearOperator
+        preconditioner for the least squares problem ||y - X(u \kron I)v||
+
+    Returns
+    -------
+    U : array, shape (size_u, k)
+    V : array, shape (p / size_u, k)
+    W : XXX
+    """
+
+    #X = splinalg.aslinearoperator(X)
+    Y = np.asarray(Y)
+    if Y.ndim == 1:
+        Y = Y.reshape((-1, 1))
+    n_task = Y.shape[1]
+
+    # .. check dimensions in input ..
+    if X.shape[0] != Y.shape[0]:
+        raise ValueError('Wrong shape for X, y')
+
+    # .. some auxiliary functions ..
+    # .. used in conjugate gradient ..
+    def obj(a, b):
+        uv0 = khatri_rao(b, a)
+        return .5 * linalg.norm(Y - X.matvec(uv0), 'fro') ** 2
+
+    def matmat1(X, a, b, n_task):
+        """
+        X (b * a) with regularization
+        """
+        uv0 = khatri_rao(b, a)
+        t0 = X.matvec(uv0)
+        tmp = np.vstack((t0, np.sqrt(alpha) * a))
+        return tmp
+
+    def matmat2(X, a, b, n_task):
+        """
+        X (b * a)
+        """
+        uv0 = khatri_rao(b, a)
+        return X.matvec(uv0)
+
+    def rmatmat1(X, a, b, n_task):
+        """
+        (I kron a^T) X^T b
+        """
+        b1 = X.rmatvec(b[:X.shape[0]]).T
+        B = b1.reshape((n_task, -1, a.shape[0]), order='F')
+        res = np.einsum("ijk, ik -> ij", B, a.T).T
+        #res += np.sqrt(alpha) * b[X.shape[0]:]
+        return res
+
+    def rmatmat2(X, a, b, n_task):
+        """
+        (a^T kron I) X^T b
+        """
+        b1 = X.rmatvec(b).T
+        B = b1.reshape((n_task, -1, a.shape[0]), order='C')
+        tmp = np.einsum("ijk, ik -> ij", B, a.T).T
+        return tmp
+
+    if u0 is None:
+        u0 = np.ones(size_u * n_task)
+    if v0 is None:
+        v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
+
+    size_v = X.shape[1] / size_u
+    u0 = u0.reshape((-1, n_task))
+    v0 = v0.reshape((-1, n_task))
+    w0 = np.empty((size_u + size_v, n_task))
+    w0[:size_u] = u0
+    w0[size_u:] = v0
+    w0[size_u:] = v0
+    w0 = w0.reshape((-1,), order='F')
+
+    from sympy import Matrix, MatrixSymbol
+    from datetime import datetime
+    vs = MatrixSymbol('v', v0.shape[0], 1)
+
+    X_3d = X.reshape((X.shape[0], u0.shape[0], v0.shape[0]), order='F')
+    tmp = (X_3d * vs.T).sum(-1)
+    if verbose:
+        print('Computing the Kernel matrix')
+        t0 = datetime.now()
+    Kv_sym = tmp.T.dot(tmp)
+    if verbose:
+        print('Done in %s' % (datetime.now() - t0))
+        print('Computing the symbolic cholesky factorization')
+        t0 = datetime.now()
+    chol_v = Matrix(Kv_sym).cholesky()
+    if verbose:
+        print('Done in %s' % (datetime.now() - t0))
+    di = dict(zip(Matrix(vs), v0[:, 0]))
+
+    chol_vi = np.array(chol_v.subs(di), dtype=np.float)
+    import ipdb; ipdb.set_trace()
+    linalg.solve_triangular()
+
+
+    if Z is not None:
+        return W[:size_u], W[size_u:], None
+    else:
+        return W[:size_u], W[size_u:]
+
+
 if __name__ == '__main__':
     size_u, size_v = 10, 8
     X = sparse.csr_matrix(np.random.randn(1000, size_u * size_v))
@@ -361,7 +491,7 @@ if __name__ == '__main__':
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
     #y = np.array([i * y for i in range(1, 10)]).T
-    u, v, w0 = rank_one(X, y, .1, size_u, Z=np.random.randn(X.shape[0], 2), verbose=True)
+    u, v, w0 = rank_one_v2(X.A, y, .1, size_u, Z=np.random.randn(X.shape[0], 2), verbose=True)
 
     import pylab as plt
     plt.matshow(B)
