@@ -415,28 +415,22 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
 
     cutoff = 1e-3
     if verbose:
-        import sys
-        sys.stdout.write('Precomputing the singular value decomposition ...\n')
-        sys.stdout.flush()
-        U, s, Vt = linalg.svd(X)
+        print('Precomputing the singular value decomposition ...')
+    U, s, Vt = linalg.svd(X)
+    if verbose:
         print('Done')
     sigma = 1. / s[s > cutoff]
+    if verbose:
+        print('Precomputing least squares solution ...')
     ls_sol = (Vt.T[:, :sigma.size] * sigma).dot(U.T[:sigma.size]).dot(Y)
     ls_sol = ls_sol.reshape((-1, n_task))
     Kern = Vt[np.sum(s > cutoff):].T
+    if verbose:
+        print('Done')
     x0 = khatri_rao(v0, u0)
     X_ = splinalg.aslinearoperator(X)
     obj_old = np.inf
     counter = 0
-
-    def power(A, q, n_iter=10):
-        # .. power iteration ..
-        # http://en.wikipedia.org/wiki/Power_iteration
-        for _ in range(n_iter):
-            z = A.T.dot(A.dot(q))
-            q = z / linalg.norm(z)
-            s = q.T.dot(A.T).dot(A).dot(q)
-        return np.sqrt(s), q
 
     def power2(A, q, n_iter=10):
         for _ in range(n_iter):
@@ -453,12 +447,15 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
             assert s.size == n_task
         return np.sqrt(s), q.reshape((q.shape[1], q.shape[2]))
 
+    if verbose:
+        print('Starting projection iteration ...')
+
     while counter < maxiter:
         counter += 1
         tmp = Kern.dot(Kern.T.dot(x0))
         proj = tmp + ls_sol
         proj = proj.reshape((u0.shape[0], v0.shape[0], n_task), order='F')
-        s, v0 = power2(proj, v0)
+        s, v0 = power2(proj, v0, 1)
         tmp = v0.reshape((1, v0.shape[0], v0.shape[1]))
         u0 = (proj * tmp).sum(1) / s
         v0 = v0 * s
