@@ -437,11 +437,12 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
         proj = 1. * tmp.T.dot(Kern.T).T + ls_sol
         proj = proj.reshape((u0.shape[0], v0.shape[0], n_task), order='F')
         for i in range(n_task):
-            out = splinalg.svds(proj[:, :, i], 1)
+            out = linalg.svd(proj[:, :, i])
+            #out = splinalg.svds(proj[:, :, i], 1)
             # what to do with the singular value ?
             s1 = 1. # out[1][0]
-            v0[:, i] = s1 * out[2].T.ravel()
-            u0[:, i] = out[0].ravel()
+            v0[:, i] = s1 * out[2].T[:, 0].ravel()
+            u0[:, i] = out[0][:, 0].ravel()
         x0 = khatri_rao(v0, u0)
         obj_new = linalg.norm(Y - X.dot(khatri_rao(v0, u0))) ** 2
 
