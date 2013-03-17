@@ -393,6 +393,8 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
     """
 
     #X = splinalg.aslinearoperator(X)
+    if sparse.issparse(X):
+        X = X.toarray()
     Y = np.asarray(Y)
     if Y.ndim == 1:
         Y = Y.reshape((-1, 1))
@@ -420,7 +422,6 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
     ls_sol = linalg.lstsq(X, Y)[0]
     ls_sol = ls_sol.reshape((-1, n_task))
     U, s, Vt = linalg.svd(X)
-    kern_size = X.shape[1] - np.sum(s > 1e-6)
     Kern = Vt[np.sum(s > 1e-6):].T
     x0 = khatri_rao(v0, u0)
     X_ = splinalg.aslinearoperator(X)
@@ -449,15 +450,14 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
         x0 = khatri_rao(v0, u0)
         obj_new = linalg.norm(Y - X.dot(x0)) ** 2
 
-        if np.abs(obj_new - obj_old) < rtol * obj_new:
-            break
-
-        obj_old = obj_new
-
         if verbose:
-            # tmp = rmatmat1(X_, u0, Y - X.dot(khatri_rao(v0, u0)), n_task)
+            #tmp = rmatmat1(X_, u0, Y - X.dot(khatri_rao(v0, u0)), n_task)
             #print('TOL %s' % linalg.norm(tmp, np.inf))
             print('OBJ %s' % obj_new)
+
+        if np.abs(obj_new - obj_old) < rtol * obj_new:
+            break
+        obj_old = obj_new
 
     if Z is not None:
         return u0, v0, None
@@ -472,7 +472,7 @@ if __name__ == '__main__':
     u_true, v_true = np.random.rand(size_u, 2), 1 + .1 * np.random.randn(size_v, 2)
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
-    #y = np.array([i * y for i in range(1, 10)]).T
+    y = np.array([i * y for i in range(1, 10)]).T
     u, v, w0 = rank_one_proj(X.A, y, .1, size_u, Z=np.random.randn(X.shape[0], 2), verbose=True)
 
     import pylab as plt
