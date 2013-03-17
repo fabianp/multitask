@@ -393,8 +393,6 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
     """
 
     #X = splinalg.aslinearoperator(X)
-    if sparse.issparse(X):
-        X = X.toarray()
     Y = np.asarray(Y)
     if Y.ndim == 1:
         Y = Y.reshape((-1, 1))
@@ -412,6 +410,8 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
 
     if u0 is None:
         u0 = np.ones(size_u * n_task)
+    if u0.shape[0] == size_u:
+        u0 = np.repeat(u0, n_task).reshape((-1, n_task), order='F')
     if v0 is None:
         v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
@@ -419,48 +419,52 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
     u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
 
-    ls_sol = linalg.lstsq(X, Y)[0]
+    cutoff = 1e-3
+    if verbose:
+        import sys
+        sys.stdout.write('Precomputing the singular value decomposition ...\n')
+        sys.stdout.flush()
+        U, s, Vt = linalg.svd(X)
+        print('Done')
+    sigma = 1. / s[s > cutoff]
+    ls_sol = (Vt.T[:, :sigma.size] * sigma).dot(U.T[:sigma.size]).dot(Y)
     ls_sol = ls_sol.reshape((-1, n_task))
-    U, s, Vt = linalg.svd(X)
-    Kern = Vt[np.sum(s > 1e-6):].T
+    Kern = Vt[np.sum(s > cutoff):].T
     x0 = khatri_rao(v0, u0)
     X_ = splinalg.aslinearoperator(X)
     obj_old = np.inf
     counter = 0
 
-    def power(A, q):
-        z = A.T.dot(A.dot(q))
-        q = z / linalg.norm(z)
-        s = q.T.dot(A.T).dot(A).dot(q)
+    def power(A, q, n_iter=10):
+        # .. power iteration ..
+        # http://en.wikipedia.org/wiki/Power_iteration
+        for i in range(n_iter):
+            z = A.T.dot(A.dot(q))
+            q = z / linalg.norm(z)
+            s = q.T.dot(A.T).dot(A).dot(q)
         return np.sqrt(s), q
 
     while counter < maxiter:
         counter += 1
-        obj0 = linalg.norm(Y - X.dot(x0)) ** 2
-        tmp = np.array([Kern.T.dot(i).dot(Kern.T) for i in x0.T])
-        proj = tmp.T + ls_sol
+        tmp = Kern.dot(Kern.T.dot(x0))
+        proj = tmp + ls_sol
         proj = proj.reshape((u0.shape[0], v0.shape[0], n_task), order='F')
-        obj1 = linalg.norm(Y - X.dot(proj.reshape((-1, n_task), order='F'))) ** 2
-        assert obj1 < obj0
         for i in range(n_task):
-            out = linalg.svd(proj[:, :, i])
-            #out = splinalg.svds(proj[:, :, i], 1)
-            # what to do with the singular value ?
-            s1 = out[1][0]
-            v0[:, i] = s1 * out[2].T[:, 0].ravel()
-            u0[:, i] = out[0][:, 0].ravel()
+            Xi = proj[:, :, i]
+            s1, v1 = power(Xi, v0[:, i], 2)
+            v0[:, i] = v1 * s1
+            u0[:, i] = np.dot(Xi, v1) / s1
         x0 = khatri_rao(v0, u0)
-        obj_new = linalg.norm(Y - X.dot(x0)) ** 2
-        tol = rmatmat1(X_, u0, Y - X.dot(khatri_rao(v0, u0)), n_task)
+        obj_new = linalg.norm(Y - X.dot(x0), 'fro') ** 2
 
         if verbose:
             #print('TOL %s' % (linalg.norm(tol, np.inf) / obj_new))
             print('OBJ %s' % obj_new)
 
-        if np.abs(obj_new - obj_old) < rtol * obj_new:
+        #print(np.abs(obj_new - obj_old) / obj_new)
+        if np.abs(obj_new - obj_old) < rtol * obj_new * 0.1:
             break
-        if linalg.norm(tmp, np.inf) < obj_new * rtol:
-            break
+
         obj_old = obj_new
 
     if Z is not None:
@@ -476,8 +480,8 @@ if __name__ == '__main__':
     u_true, v_true = np.random.rand(size_u, 2), 1 + .1 * np.random.randn(size_v, 2)
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
-    y = np.array([i * y for i in range(1, 10)]).T
-    u, v, w0 = rank_one_proj(X.A, y, .1, size_u, Z=np.random.randn(X.shape[0], 2), verbose=True, maxiter=np.inf)
+    y = np.array([i * y for i in range(1, 100)]).T
+    u, v, w0 = rank_one_proj(X.A, y, .1, size_u, u0=np.random.randn(size_u), Z=np.random.randn(X.shape[0], 2), verbose=True, maxiter=100)
 
     import pylab as plt
     plt.matshow(B)
