@@ -320,6 +320,8 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
 
     if u0 is None:
         u0 = np.ones(size_u * n_task)
+    if u0.shape[0] == size_u:
+        u0 = np.repeat(u0, n_task).reshape((-1, n_task), order='F')
     if v0 is None:
         v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
