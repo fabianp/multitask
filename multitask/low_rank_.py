@@ -421,7 +421,7 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
     ls_sol = ls_sol.reshape((-1, n_task))
     U, s, Vt = linalg.svd(X)
     kern_size = X.shape[1] - np.sum(s > 1e-6)
-    Kern = Vt[-kern_size:].T
+    Kern = Vt[np.sum(s > 1e-6):].T
     x0 = khatri_rao(v0, u0)
     X_ = splinalg.aslinearoperator(X)
     obj_old = np.inf
@@ -433,18 +433,21 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
         return np.sqrt(s), q
 
     for _ in range(maxiter):
-        tmp = Kern.T.dot(x0)
-        proj = 1. * tmp.T.dot(Kern.T).T + ls_sol
+        obj0 = linalg.norm(Y - X.dot(x0)) ** 2
+        tmp = np.array([Kern.T.dot(i).dot(Kern.T) for i in x0.T])
+        proj = tmp.T + ls_sol
         proj = proj.reshape((u0.shape[0], v0.shape[0], n_task), order='F')
+        obj1 = linalg.norm(Y - X.dot(proj.reshape((-1, n_task), order='F'))) ** 2
+        assert obj1 < obj0
         for i in range(n_task):
             out = linalg.svd(proj[:, :, i])
             #out = splinalg.svds(proj[:, :, i], 1)
             # what to do with the singular value ?
-            s1 = 1. # out[1][0]
+            s1 = out[1][0]
             v0[:, i] = s1 * out[2].T[:, 0].ravel()
             u0[:, i] = out[0][:, 0].ravel()
         x0 = khatri_rao(v0, u0)
-        obj_new = linalg.norm(Y - X.dot(khatri_rao(v0, u0))) ** 2
+        obj_new = linalg.norm(Y - X.dot(x0)) ** 2
 
         if np.abs(obj_new - obj_old) < rtol * obj_new:
             break
