@@ -432,22 +432,41 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
     def power(A, q, n_iter=10):
         # .. power iteration ..
         # http://en.wikipedia.org/wiki/Power_iteration
-        for i in range(n_iter):
+        for _ in range(n_iter):
             z = A.T.dot(A.dot(q))
             q = z / linalg.norm(z)
             s = q.T.dot(A.T).dot(A).dot(q)
         return np.sqrt(s), q
+
+    def power2(A, q, n_iter=10):
+        for _ in range(n_iter):
+            z = (A * q).sum(1)
+            z = z.reshape((1, z.shape[0], z.shape[1]))
+            z = (A.transpose((1, 0, 2)) * z).sum(1)
+            q = (z / np.sqrt((z.T * z.T).sum(1)))
+            q = q.reshape((1, q.shape[0], q.shape[1]))
+            s = (A * q).sum(1)
+            s = s.reshape((1, s.shape[0], s.shape[1]))
+            s = (A.transpose((1, 0, 2)) * s).sum(1)
+            s = s.reshape((1, s.shape[0], s.shape[1]))
+            s = (s * q).sum(1)
+            assert s.size == n_task
+        return np.sqrt(s), q.reshape((q.shape[1], q.shape[2]))
 
     while counter < maxiter:
         counter += 1
         tmp = Kern.dot(Kern.T.dot(x0))
         proj = tmp + ls_sol
         proj = proj.reshape((u0.shape[0], v0.shape[0], n_task), order='F')
-        for i in range(n_task):
-            Xi = proj[:, :, i]
-            s1, v1 = power(Xi, v0[:, i], 2)
-            v0[:, i] = v1 * s1
-            u0[:, i] = np.dot(Xi, v1) / s1
+        s, v0 = power2(proj, v0)
+        tmp = v0.reshape((1, v0.shape[0], v0.shape[1]))
+        u0 = (proj * tmp).sum(1) / s
+        v0 = v0 * s
+        # for i in range(n_task):
+        #     Xi = proj[:, :, i]
+        #     s1, v1 = power(Xi, v0[:, i], 2)
+        #     v0[:, i] = v1 * s1
+        #     u0[:, i] = np.dot(Xi, v1) / s1
         x0 = khatri_rao(v0, u0)
         obj_new = linalg.norm(Y - X.dot(x0), 'fro') ** 2
 
@@ -468,14 +487,15 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
 
 
 if __name__ == '__main__':
-    size_u, size_v = 10, 48
+    size_u, size_v = 9, 48
     X = sparse.csr_matrix(np.random.randn(100, size_u * size_v))
     Z = np.random.randn(1000, 20)
     u_true, v_true = np.random.rand(size_u, 2), 1 + .1 * np.random.randn(size_v, 2)
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
-    y = np.array([i * y for i in range(1, 100)]).T
-    u, v, w0 = rank_one_proj(X.A, y, .1, size_u, u0=np.random.randn(size_u), Z=np.random.randn(X.shape[0], 2), verbose=True, maxiter=100)
+    y = np.array([i * y for i in range(1, 101)]).T
+    u, v, w0 = rank_one_proj(X.A, y, .1, size_u, u0=np.random.randn(size_u),
+                             Z=np.random.randn(X.shape[0], 2), verbose=True, maxiter=500)
 
     import pylab as plt
     plt.matshow(B)
