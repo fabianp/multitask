@@ -425,6 +425,7 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
     ls_sol = (Vt.T[:, :sigma.size] * sigma).dot(U.T[:sigma.size]).dot(Y)
     ls_sol = ls_sol.reshape((-1, n_task))
     Kern = Vt[np.sum(s > cutoff):].T
+    KK = Kern.dot(Kern.T)
     if verbose:
         print('Done')
     x0 = khatri_rao(v0, u0)
@@ -452,7 +453,7 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
 
     while counter < maxiter:
         counter += 1
-        tmp = Kern.dot(Kern.T.dot(x0))
+        tmp = KK.dot(x0)
         proj = tmp + ls_sol
         proj = proj.reshape((u0.shape[0], v0.shape[0], n_task), order='F')
         s, v0 = power2(proj, v0, 1)
