@@ -229,6 +229,35 @@ def PCGNR(matmat, rmatmat, b, x0, M, maxiter=100, rtol=1e-6):
     return x0, residuals
 
 
+def matmat2(X, a, b, n_task):
+    """
+    X (b * a)
+    """
+    uv0 = khatri_rao(b, a)
+    return X.matvec(uv0)
+
+
+def rmatmat1(X, a, b, n_task):
+    """
+    (I kron a^T) X^T b
+    """
+    b1 = X.rmatvec(b[:X.shape[0]]).T
+    B = b1.reshape((n_task, -1, a.shape[0]), order='F')
+    res = np.einsum("ijk, ik -> ij", B, a.T).T
+    #res += np.sqrt(alpha) * b[X.shape[0]:]
+    return res
+
+
+def rmatmat2(X, a, b, n_task):
+    """
+    (a^T kron I) X^T b
+    """
+    b1 = X.rmatvec(b).T
+    B = b1.reshape((n_task, -1, a.shape[0]), order='C')
+    tmp = np.einsum("ijk, ik -> ij", B, a.T).T
+    return tmp
+
+
 def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one model
@@ -288,31 +317,6 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         tmp = np.vstack((t0, np.sqrt(alpha) * a))
         return tmp
 
-    def matmat2(X, a, b, n_task):
-        """
-        X (b * a)
-        """
-        uv0 = khatri_rao(b, a)
-        return X.matvec(uv0)
-
-    def rmatmat1(X, a, b, n_task):
-        """
-        (I kron a^T) X^T b
-        """
-        b1 = X.rmatvec(b[:X.shape[0]]).T
-        B = b1.reshape((n_task, -1, a.shape[0]), order='F')
-        res = np.einsum("ijk, ik -> ij", B, a.T).T
-        #res += np.sqrt(alpha) * b[X.shape[0]:]
-        return res
-
-    def rmatmat2(X, a, b, n_task):
-        """
-        (a^T kron I) X^T b
-        """
-        b1 = X.rmatvec(b).T
-        B = b1.reshape((n_task, -1, a.shape[0]), order='C')
-        tmp = np.einsum("ijk, ik -> ij", B, a.T).T
-        return tmp
 
     if u0 is None:
         u0 = np.ones(size_u * n_task)
@@ -354,7 +358,7 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
 
 
 
-def rank_one_v2(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
+def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one model
 
@@ -402,42 +406,7 @@ def rank_one_v2(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rto
     # .. used in conjugate gradient ..
     def obj(a, b):
         uv0 = khatri_rao(b, a)
-        return .5 * linalg.norm(Y - X.matvec(uv0), 'fro') ** 2
-
-    def matmat1(X, a, b, n_task):
-        """
-        X (b * a) with regularization
-        """
-        uv0 = khatri_rao(b, a)
-        t0 = X.matvec(uv0)
-        tmp = np.vstack((t0, np.sqrt(alpha) * a))
-        return tmp
-
-    def matmat2(X, a, b, n_task):
-        """
-        X (b * a)
-        """
-        uv0 = khatri_rao(b, a)
-        return X.matvec(uv0)
-
-    def rmatmat1(X, a, b, n_task):
-        """
-        (I kron a^T) X^T b
-        """
-        b1 = X.rmatvec(b[:X.shape[0]]).T
-        B = b1.reshape((n_task, -1, a.shape[0]), order='F')
-        res = np.einsum("ijk, ik -> ij", B, a.T).T
-        #res += np.sqrt(alpha) * b[X.shape[0]:]
-        return res
-
-    def rmatmat2(X, a, b, n_task):
-        """
-        (a^T kron I) X^T b
-        """
-        b1 = X.rmatvec(b).T
-        B = b1.reshape((n_task, -1, a.shape[0]), order='C')
-        tmp = np.einsum("ijk, ik -> ij", B, a.T).T
-        return tmp
+        return .5 * linalg.norm(Y - X.dot(uv0), 'fro') ** 2
 
     if u0 is None:
         u0 = np.ones(size_u * n_task)
@@ -447,40 +416,49 @@ def rank_one_v2(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rto
     size_v = X.shape[1] / size_u
     u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
-    w0 = np.empty((size_u + size_v, n_task))
-    w0[:size_u] = u0
-    w0[size_u:] = v0
-    w0[size_u:] = v0
-    w0 = w0.reshape((-1,), order='F')
 
-    from sympy import Matrix, MatrixSymbol
-    from datetime import datetime
-    vs = MatrixSymbol('v', v0.shape[0], 1)
+    ls_sol = linalg.lstsq(X, Y)[0]
+    ls_sol = ls_sol.reshape((-1, n_task))
+    U, s, Vt = linalg.svd(X)
+    kern_size = X.shape[1] - np.sum(s > 1e-6)
+    Kern = Vt[-kern_size:].T
+    x0 = khatri_rao(v0, u0)
+    X_ = splinalg.aslinearoperator(X)
+    obj_old = np.inf
 
-    X_3d = X.reshape((X.shape[0], u0.shape[0], v0.shape[0]), order='F')
-    tmp = (X_3d * vs.T).sum(-1)
-    if verbose:
-        print('Computing the Kernel matrix')
-        t0 = datetime.now()
-    Kv_sym = tmp.T.dot(tmp)
-    if verbose:
-        print('Done in %s' % (datetime.now() - t0))
-        print('Computing the symbolic cholesky factorization')
-        t0 = datetime.now()
-    chol_v = Matrix(Kv_sym).cholesky()
-    if verbose:
-        print('Done in %s' % (datetime.now() - t0))
-    di = dict(zip(Matrix(vs), v0[:, 0]))
+    def power(A, q):
+        z = A.T.dot(A.dot(q))
+        q = z / linalg.norm(z)
+        s = q.T.dot(A.T).dot(A).dot(q)
+        return np.sqrt(s), q
 
-    chol_vi = np.array(chol_v.subs(di), dtype=np.float)
-    import ipdb; ipdb.set_trace()
-    linalg.solve_triangular()
+    for _ in range(maxiter):
+        tmp = Kern.T.dot(x0)
+        proj = 1. * tmp.T.dot(Kern.T).T + ls_sol
+        proj = proj.reshape((u0.shape[0], v0.shape[0], n_task), order='F')
+        for i in range(n_task):
+            out = splinalg.svds(proj[:, :, i], 1)
+            # what to do with the singular value ?
+            s1 = 1. # out[1][0]
+            v0[:, i] = s1 * out[2].T.ravel()
+            u0[:, i] = out[0].ravel()
+        x0 = khatri_rao(v0, u0)
+        obj_new = linalg.norm(Y - X.dot(khatri_rao(v0, u0))) ** 2
 
+        if np.abs(obj_new - obj_old) < rtol * obj_new:
+            break
+
+        obj_old = obj_new
+
+        if verbose:
+            # tmp = rmatmat1(X_, u0, Y - X.dot(khatri_rao(v0, u0)), n_task)
+            #print('TOL %s' % linalg.norm(tmp, np.inf))
+            print('OBJ %s' % obj_new)
 
     if Z is not None:
-        return W[:size_u], W[size_u:], None
+        return u0, v0, None
     else:
-        return W[:size_u], W[size_u:]
+        return u0, v0
 
 
 if __name__ == '__main__':
@@ -491,7 +469,7 @@ if __name__ == '__main__':
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
     #y = np.array([i * y for i in range(1, 10)]).T
-    u, v, w0 = rank_one_v2(X.A, y, .1, size_u, Z=np.random.randn(X.shape[0], 2), verbose=True)
+    u, v, w0 = rank_one_proj(X.A, y, .1, size_u, Z=np.random.randn(X.shape[0], 2), verbose=True)
 
     import pylab as plt
     plt.matshow(B)
