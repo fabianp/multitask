@@ -402,12 +402,6 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
     if X.shape[0] != Y.shape[0]:
         raise ValueError('Wrong shape for X, y')
 
-    # .. some auxiliary functions ..
-    # .. used in conjugate gradient ..
-    def obj(a, b):
-        uv0 = khatri_rao(b, a)
-        return .5 * linalg.norm(Y - X.dot(uv0), 'fro') ** 2
-
     if u0 is None:
         u0 = np.ones(size_u * n_task)
     if u0.shape[0] == size_u:
