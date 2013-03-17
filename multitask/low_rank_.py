@@ -426,6 +426,7 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
     x0 = khatri_rao(v0, u0)
     X_ = splinalg.aslinearoperator(X)
     obj_old = np.inf
+    counter = 0
 
     def power(A, q):
         z = A.T.dot(A.dot(q))
@@ -433,7 +434,8 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
         s = q.T.dot(A.T).dot(A).dot(q)
         return np.sqrt(s), q
 
-    for _ in range(maxiter):
+    while counter < maxiter:
+        counter += 1
         obj0 = linalg.norm(Y - X.dot(x0)) ** 2
         tmp = np.array([Kern.T.dot(i).dot(Kern.T) for i in x0.T])
         proj = tmp.T + ls_sol
@@ -449,13 +451,15 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
             u0[:, i] = out[0][:, 0].ravel()
         x0 = khatri_rao(v0, u0)
         obj_new = linalg.norm(Y - X.dot(x0)) ** 2
+        tol = rmatmat1(X_, u0, Y - X.dot(khatri_rao(v0, u0)), n_task)
 
         if verbose:
-            #tmp = rmatmat1(X_, u0, Y - X.dot(khatri_rao(v0, u0)), n_task)
-            #print('TOL %s' % linalg.norm(tmp, np.inf))
+            #print('TOL %s' % (linalg.norm(tol, np.inf) / obj_new))
             print('OBJ %s' % obj_new)
 
         if np.abs(obj_new - obj_old) < rtol * obj_new:
+            break
+        if linalg.norm(tmp, np.inf) < obj_new * rtol:
             break
         obj_old = obj_new
 
@@ -466,14 +470,14 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
 
 
 if __name__ == '__main__':
-    size_u, size_v = 10, 8
-    X = sparse.csr_matrix(np.random.randn(1000, size_u * size_v))
+    size_u, size_v = 10, 48
+    X = sparse.csr_matrix(np.random.randn(100, size_u * size_v))
     Z = np.random.randn(1000, 20)
     u_true, v_true = np.random.rand(size_u, 2), 1 + .1 * np.random.randn(size_v, 2)
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
     y = np.array([i * y for i in range(1, 10)]).T
-    u, v, w0 = rank_one_proj(X.A, y, .1, size_u, Z=np.random.randn(X.shape[0], 2), verbose=True)
+    u, v, w0 = rank_one_proj(X.A, y, .1, size_u, Z=np.random.randn(X.shape[0], 2), verbose=True, maxiter=np.inf)
 
     import pylab as plt
     plt.matshow(B)
