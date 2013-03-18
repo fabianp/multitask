@@ -337,7 +337,7 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         u, v = W[:size_u], W[size_u:]
         tmp = Y_ - matmat2(X_, u, v, n_task)
         grad = np.empty((size_u + size_v, n_task))  # TODO: do outside
-        grad[:size_u] = rmatmat1(X, v, tmp, n_task) + alpha * (u.T - prior_u).T
+        grad[:size_u] = rmatmat1(X, v, tmp, n_task) - alpha * (u.T - prior_u).T
         grad[size_u:] = rmatmat2(X, u, tmp, n_task)
         return - grad.reshape((-1,), order='F')
 
@@ -498,9 +498,9 @@ if __name__ == '__main__':
     u_true, v_true = np.random.rand(size_u, 2), 1 + .1 * np.random.randn(size_v, 2)
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
-    y = np.array([i * y for i in range(1, 101)]).T
+    y = np.array([i * y for i in range(1, 3)]).T
     u, v = rank_one(X.A, y, 1., size_u, u0=np.random.randn(size_u),
-                verbose=True, rtol=1e-6)
+                verbose=True, rtol=1e-6, prior_u=np.ones(size_u))
 
     import pylab as plt
     plt.matshow(B)
