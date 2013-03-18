@@ -279,9 +279,9 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     rtol : float
     maxiter : int
         maximum number of iterations
-    verbose : bool
-        If True, prints the value of the objective
-        function at each iteration
+    verbose : int
+        1 : a bit verbose
+        2 : very verbose
     Mv : LinearOperator
         preconditioner for the least squares problem ||y - X(u \kron I)v||
 
@@ -304,9 +304,9 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
 
     # .. some auxiliary functions ..
     # .. used in conjugate gradient ..
-    def obj(a, b):
+    def obj(X_, Y_, a, b):
         uv0 = khatri_rao(b, a)
-        return .5 * linalg.norm(Y - X.matvec(uv0), 'fro') ** 2
+        return .5 * linalg.norm(Y_ - X_.matvec(uv0), 'fro') ** 2
 
     def matmat1(X, a, b, n_task):
         """
@@ -334,29 +334,41 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     w0[size_u:] = v0
     w0 = w0.reshape((-1,), order='F')
 
-    def f(w):
+    def f(w, X_, Y_, n_task):
         W = w.reshape((-1, n_task), order='F')
         u, v = W[:size_u], W[size_u:]
-        return obj(u, v)
+        return obj(X_, Y_, u, v)
 
-    def fprime(w):
+    def fprime(w, X_, Y_, n_task):
         W = w.reshape((-1, n_task), order='F')
         u, v = W[:size_u], W[size_u:]
-        tmp = Y - matmat2(X, u, v, n_task)
+        tmp = Y_ - matmat2(X_, u, v, n_task)
         grad = np.empty((size_u + size_v, n_task))  # TODO: do outside
         grad[:size_u] = rmatmat1(X, v, tmp, n_task)
         grad[size_u:] = rmatmat2(X, u, tmp, n_task)
         return - grad.reshape((-1,), order='F')
 
+    n_split = Y.shape[1] // 100 + 1
+    Y_split = np.array_split(Y, n_split, axis=1)
+    U = np.zeros((size_u, n_task))
+    V = np.zeros((size_v, n_task))
+    counter = 0
+    for y_i in Y_split:
+        w0_i = w0.reshape((size_u + size_v, n_task), order='F')[:, counter:(counter + y_i.shape[1])]
 
-    def call(x):
-        print('OBJ %s' % f(x))
-    out = optimize.minimize(f, w0, jac=fprime, tol=rtol, callback=call, method='L-BFGS-B')
-    W = out.x.reshape((-1, n_task), order='F')
+        tmp = optimize.minimize(f, w0_i, jac=fprime, tol=rtol,
+                                method='L-BFGS-B', args=(X, y_i, y_i.shape[1]))
+        W = tmp.x.reshape((-1, y_i.shape[1]), order='F')
+        U[:, counter:counter + y_i.shape[1]] = W[:size_u]
+        V[:, counter:counter + y_i.shape[1]] = W[size_u:]
+        counter += y_i.shape[1]
+        if verbose:
+            print('Completed %.01f %%' % ((100. * counter) / Y.shape[1]))
+
     if Z is not None:
-        return W[:size_u], W[size_u:], None
+        return U, V, None
     else:
-        return W[:size_u], W[size_u:]
+        return U, V
 
 
 
@@ -494,8 +506,8 @@ if __name__ == '__main__':
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
     y = np.array([i * y for i in range(1, 101)]).T
-    u, v, w0 = rank_one_proj(X.A, y, .1, size_u, u0=np.random.randn(size_u),
-                             Z=np.random.randn(X.shape[0], 2), verbose=True, maxiter=500)
+    u, v, w0 = rank_one(X.A, y, .1, size_u, u0=np.random.randn(size_u),
+                             Z=np.random.randn(X.shape[0], 2), verbose=True, rtol=1e-6)
 
     import pylab as plt
     plt.matshow(B)
