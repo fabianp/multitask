@@ -282,8 +282,6 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     verbose : int
         1 : a bit verbose
         2 : very verbose
-    Mv : LinearOperator
-        preconditioner for the least squares problem ||y - X(u \kron I)v||
 
     Returns
     -------
@@ -302,22 +300,9 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     if X.shape[0] != Y.shape[0]:
         raise ValueError('Wrong shape for X, y')
 
-    # .. some auxiliary functions ..
-    # .. used in conjugate gradient ..
-    def obj(X_, Y_, a, b):
-        uv0 = khatri_rao(b, a)
-        return .5 * linalg.norm(Y_ - X_.matvec(uv0), 'fro') ** 2
-
-    def matmat1(X, a, b, n_task):
-        """
-        X (b * a) with regularization
-        """
-        uv0 = khatri_rao(b, a)
-        t0 = X.matvec(uv0)
-        tmp = np.vstack((t0, np.sqrt(alpha) * a))
-        return tmp
-
-
+    if prior_u is None:
+        prior_u = np.zeros(size_u)
+    assert prior_u.size == size_u
     if u0 is None:
         u0 = np.ones(size_u * n_task)
     if u0.shape[0] == size_u:
@@ -334,6 +319,14 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     w0[size_u:] = v0
     w0 = w0.reshape((-1,), order='F')
 
+    # .. some auxiliary functions ..
+    # .. used in conjugate gradient ..
+    def obj(X_, Y_, a, b):
+        uv0 = khatri_rao(b, a)
+        cost = .5 * linalg.norm(Y_ - X_.matvec(uv0), 'fro') ** 2
+        reg = alpha * linalg.norm(a.T - prior_u, 'fro') ** 2
+        return cost + reg
+
     def f(w, X_, Y_, n_task):
         W = w.reshape((-1, n_task), order='F')
         u, v = W[:size_u], W[size_u:]
@@ -344,7 +337,7 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         u, v = W[:size_u], W[size_u:]
         tmp = Y_ - matmat2(X_, u, v, n_task)
         grad = np.empty((size_u + size_v, n_task))  # TODO: do outside
-        grad[:size_u] = rmatmat1(X, v, tmp, n_task)
+        grad[:size_u] = rmatmat1(X, v, tmp, n_task) + alpha * (u.T - prior_u).T
         grad[size_u:] = rmatmat2(X, u, tmp, n_task)
         return - grad.reshape((-1,), order='F')
 
@@ -506,8 +499,8 @@ if __name__ == '__main__':
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
     y = np.array([i * y for i in range(1, 101)]).T
-    u, v, w0 = rank_one(X.A, y, .1, size_u, u0=np.random.randn(size_u),
-                             Z=np.random.randn(X.shape[0], 2), verbose=True, rtol=1e-6)
+    u, v = rank_one(X.A, y, 1., size_u, u0=np.random.randn(size_u),
+                verbose=True, rtol=1e-6)
 
     import pylab as plt
     plt.matshow(B)
