@@ -363,7 +363,7 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         V[:, counter:counter + y_i.shape[1]] = W[size_u:]
         counter += y_i.shape[1]
         if verbose:
-            print('Completed %.01f %%' % ((100. * counter) / Y.shape[1]))
+            print('Completed %.01f%%' % ((100. * counter) / Y.shape[1]))
 
     if Z is not None:
         return U, V, None
