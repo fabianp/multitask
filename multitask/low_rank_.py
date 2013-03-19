@@ -348,14 +348,11 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False):
         if verbose:
             print('Completed %.01f%%' % ((100. * counter) / Y.shape[1]))
 
-    if Z is not None:
-        return U, V, None
-    else:
-        return U, V
+    return U, V
 
 
 
-def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
+def rank_one_proj(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one model
 
@@ -410,23 +407,20 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
     u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
 
-    cutoff = 1e-3
+    #cutoff = 1e-3
     if verbose:
         print('Precomputing the singular value decomposition ...')
-    U, s, Vt = linalg.svd(X)
     if verbose:
         print('Done')
-    sigma = 1. / s[s > cutoff]
     if verbose:
         print('Precomputing least squares solution ...')
-    ls_sol = (Vt.T[:, :sigma.size] * sigma).dot(U.T[:sigma.size]).dot(Y)
-    ls_sol = ls_sol.reshape((-1, n_task))
-    Kern = Vt[np.sum(s > cutoff):].T
-    KK = Kern.dot(Kern.T)
+    XY = np.dot(X.T, Y)
     if verbose:
         print('Done')
-    x0 = khatri_rao(v0, u0)
-    X_ = splinalg.aslinearoperator(X)
+    U, sigma, Vt = linalg.svd(X, full_matrices=True)
+    sigma1 = np.zeros(X.shape[1])
+    sigma1[:sigma.size] = sigma
+    sigma = sigma1
     obj_old = np.inf
     counter = 0
 
@@ -450,18 +444,29 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
 
     while counter < maxiter:
         counter += 1
-        tmp = KK.dot(x0)
-        proj = tmp + ls_sol
-        proj = proj.reshape((u0.shape[0], v0.shape[0], n_task), order='F')
-        s, v0 = power2(proj, v0, 1)
+        x0 = khatri_rao(v0, u0)  # remove
+        print(linalg.norm(Y - X.dot(x0), 'fro') ** 2)
+        tmp = np.zeros(v0[:, 0].size)
+        idx = np.abs(v0[:, 0]) > 1e-12
+        tmp[idx] = 1 / v0[idx, 0]
+        d = np.kron(tmp, np.ones(size_u) / size_u)
+        s1 = 1. / (sigma * sigma + alpha * d * d)
+        #import ipdb; ipdb.set_trace()
+        S = np.diag(s1)
+        ridge_sol = (Vt.T.dot(S)).dot(Vt).dot(XY)
+        D = np.diag(d)
+        ridge_sol = linalg.solve(X.T.dot(X) + alpha * D.T.dot(D), XY)
+        x0 = ridge_sol.reshape((u0.shape[0], v0.shape[0], n_task), order='F')
+        assert np.allclose((X.T.dot(X) + alpha * D.T.dot(D)).dot(ridge_sol), XY)
+        # import ipdb; ipdb.set_trace()
+        print(linalg.norm(Y - X.dot(ridge_sol.reshape((-1, n_task), order='F')), 'fro') ** 2)
+        print
+        #import ipdb; ipdb.set_trace()
+
+        s, v0 = power2(x0, v0, 100)
         tmp = v0.reshape((1, v0.shape[0], v0.shape[1]))
-        u0 = (proj * tmp).sum(1) / s
+        u0 = (x0 * tmp).sum(1) / s
         v0 = v0 * s
-        # for i in range(n_task):
-        #     Xi = proj[:, :, i]
-        #     s1, v1 = power(Xi, v0[:, i], 2)
-        #     v0[:, i] = v1 * s1
-        #     u0[:, i] = np.dot(Xi, v1) / s1
         x0 = khatri_rao(v0, u0)
         obj_new = linalg.norm(Y - X.dot(x0), 'fro') ** 2
 
@@ -475,10 +480,7 @@ def rank_one_proj(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, r
 
         obj_old = obj_new
 
-    if Z is not None:
-        return u0, v0, None
-    else:
-        return u0, v0
+    return u0, v0
 
 
 if __name__ == '__main__':
@@ -487,10 +489,9 @@ if __name__ == '__main__':
     Z = np.random.randn(1000, 20)
     u_true, v_true = np.random.rand(size_u, 2), 1 + .1 * np.random.randn(size_v, 2)
     B = np.dot(u_true, v_true.T)
-    y = X.dot(B.ravel('F')) + .3 * np.random.randn(X.shape[0])
-    y = np.array([i * y for i in range(1, 3)]).T
-    u, v = rank_one(X.A, y, 1., size_u, u0=np.random.randn(size_u),
-                verbose=True, rtol=1e-6, prior_u=np.ones(size_u))
+    y = X.dot(B.ravel('F')) + .1 * np.random.randn(X.shape[0])
+    #y = np.array([i * y for i in range(1, 3)]).T
+    u, v = rank_one_proj(X.A, y, 100.1, size_u, verbose=True, rtol=1e-10, maxiter=10)
 
     import pylab as plt
     plt.matshow(B)
