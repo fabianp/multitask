@@ -258,13 +258,11 @@ def rmatmat2(X, a, b, n_task):
     return tmp
 
 
-def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
+def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False):
     """
     multi-target rank one model
 
-        ||y - X vec(u v.T)||_2 ^2
-
-    TODO: prior_u
+        ||y - X vec(u v.T)||^2 + alpha * ||u - u_0||^2
 
     Parameters
     ----------
@@ -273,9 +271,6 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     size_u : integer
         Must be divisor of p
     u0 : array
-        Initial value for u
-    v0 : array
-        Initial value for v
     rtol : float
     maxiter : int
         maximum number of iterations
@@ -300,22 +295,17 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     if X.shape[0] != Y.shape[0]:
         raise ValueError('Wrong shape for X, y')
 
-    if prior_u is None:
-        prior_u = np.zeros(size_u)
-    assert prior_u.size == size_u
     if u0 is None:
-        u0 = np.ones(size_u * n_task)
-    if u0.shape[0] == size_u:
-        u0 = np.repeat(u0, n_task).reshape((-1, n_task), order='F')
+        u0 = np.ones(size_u)
+    assert u0.size == size_u
     if v0 is None:
         v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
     size_v = X.shape[1] / size_u
-    u0 = u0.reshape((-1, n_task))
+    #u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
     w0 = np.empty((size_u + size_v, n_task))
-    w0[:size_u] = u0
-    w0[size_u:] = v0
+    w0[:size_u] = u0[:, None]
     w0[size_u:] = v0
     w0 = w0.reshape((-1,), order='F')
 
@@ -324,7 +314,7 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
     def obj(X_, Y_, a, b):
         uv0 = khatri_rao(b, a)
         cost = .5 * linalg.norm(Y_ - X_.matvec(uv0), 'fro') ** 2
-        reg = alpha * linalg.norm(a.T - prior_u, 'fro') ** 2
+        reg = alpha * linalg.norm(a.T - u0, 'fro') ** 2
         return cost + reg
 
     def f(w, X_, Y_, n_task):
@@ -337,7 +327,7 @@ def rank_one(X, Y, alpha, size_u, prior_u=None, Z=None, u0=None, v0=None, rtol=1
         u, v = W[:size_u], W[size_u:]
         tmp = Y_ - matmat2(X_, u, v, n_task)
         grad = np.empty((size_u + size_v, n_task))  # TODO: do outside
-        grad[:size_u] = rmatmat1(X, v, tmp, n_task) - alpha * (u.T - prior_u).T
+        grad[:size_u] = rmatmat1(X, v, tmp, n_task) - alpha * (u.T - u0).T
         grad[size_u:] = rmatmat2(X, u, tmp, n_task)
         return - grad.reshape((-1,), order='F')
 
