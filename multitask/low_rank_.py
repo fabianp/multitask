@@ -352,7 +352,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False):
 
 
 
-def rank_one_proj(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
+def rank_one_proj(X, Y, alpha, beta, size_u, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one model
 
@@ -391,20 +391,21 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, maxiter=1000
     if Y.ndim == 1:
         Y = Y.reshape((-1, 1))
     n_task = Y.shape[1]
+    size_v = X.shape[1] / size_u
 
     # .. check dimensions in input ..
     if X.shape[0] != Y.shape[0]:
         raise ValueError('Wrong shape for X, y')
 
+    u = np.ones(size_u * n_task)
     if u0 is None:
-        u0 = np.ones(size_u * n_task)
-    if u0.shape[0] == size_u:
-        u0 = np.repeat(u0, n_task).reshape((-1, n_task), order='F')
+        u0 = np.ones((size_u * size_v, n_task))
+    if u.shape[0] == size_u:
+        u = np.repeat(u, n_task).reshape((-1, n_task), order='F')
     if v0 is None:
         v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
-    size_v = X.shape[1] / size_u
-    u0 = u0.reshape((-1, n_task))
+    u = u.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
 
     #cutoff = 1e-3
@@ -444,31 +445,23 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, maxiter=1000
 
     while counter < maxiter:
         counter += 1
-        x0 = khatri_rao(v0, u0)  # remove
-        print(linalg.norm(Y - X.dot(x0), 'fro') ** 2)
-        tmp = np.zeros(v0[:, 0].size)
-        idx = np.abs(v0[:, 0]) > 1e-12
-        tmp[idx] = 1 / v0[idx, 0]
-        d = np.kron(tmp, np.ones(size_u) / size_u)
-        s1 = 1. / (sigma * sigma + alpha * d * d)
-        #import ipdb; ipdb.set_trace()
+        x0 = khatri_rao(v0, u)  # remove
+        d = np.kron(1 / v0[:, 0], np.ones(size_u) / size_v)
+        d[np.abs(d) > 1e12] = 1e12
+        h = np.kron(np.ones(size_v) / size_u, 1 / u[:, 0])
+        h[np.abs(h) > 1e12] = 1e12
+        s1 = 1. / (sigma * sigma + alpha * d * d + beta * h * h)
         S = np.diag(s1)
-        ridge_sol = (Vt.T.dot(S)).dot(Vt).dot(XY)
         D = np.diag(d)
-        ridge_sol = linalg.solve(X.T.dot(X) + alpha * D.T.dot(D), XY)
-        x0 = ridge_sol.reshape((u0.shape[0], v0.shape[0], n_task), order='F')
-        assert np.allclose((X.T.dot(X) + alpha * D.T.dot(D)).dot(ridge_sol), XY)
-        # import ipdb; ipdb.set_trace()
-        print(linalg.norm(Y - X.dot(ridge_sol.reshape((-1, n_task), order='F')), 'fro') ** 2)
-        print
-        #import ipdb; ipdb.set_trace()
-
-        s, v0 = power2(x0, v0, 100)
-        tmp = v0.reshape((1, v0.shape[0], v0.shape[1]))
-        u0 = (x0 * tmp).sum(1) / s
-        v0 = v0 * s
-        x0 = khatri_rao(v0, u0)
-        obj_new = linalg.norm(Y - X.dot(x0), 'fro') ** 2
+        H = np.diag(h)
+        sol = linalg.solve(X.T.dot(X) + alpha * D.T.dot(D) + beta * H.T.dot(H), XY + alpha * u0)
+        # x0 = sol.reshape((u0.shape[0], v0.shape[0], n_task), order='F')
+        tmp = D.dot(sol).reshape((u.shape[0], v0.shape[0], n_task), order='F')
+        u = tmp.sum(1)
+        tmp = H.dot(sol).reshape((u.shape[0], v0.shape[0], n_task), order='F')
+        v0 = tmp.sum(0)
+        obj_new = linalg.norm(Y - X.dot(sol), 'fro') ** 2 + alpha * (linalg.norm(u - u0[:size_u]) ** 2)
+        print((linalg.norm(u - u0[:size_u]) ** 2))
 
         if verbose:
             #print('TOL %s' % (linalg.norm(tol, np.inf) / obj_new))
@@ -480,7 +473,7 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, maxiter=1000
 
         obj_old = obj_new
 
-    return u0, v0
+    return u, v0
 
 
 if __name__ == '__main__':
@@ -491,7 +484,7 @@ if __name__ == '__main__':
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .1 * np.random.randn(X.shape[0])
     #y = np.array([i * y for i in range(1, 3)]).T
-    u, v = rank_one_proj(X.A, y, 100.1, size_u, verbose=True, rtol=1e-10, maxiter=10)
+    u, v = rank_one_proj(X.A, y, 1000.0, 10.0, size_u, verbose=True, rtol=1e-10, maxiter=20)
 
     import pylab as plt
     plt.matshow(B)
