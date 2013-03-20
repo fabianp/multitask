@@ -446,12 +446,12 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000,
     sol = None
     while counter < maxiter:
         counter += 1
-        d = np.kron(1 / v[:, 0], np.ones(size_u) / size_v)
+        d = np.kron(1 / v[:, 0], np.ones(size_u))
         D = np.diag(d)
         sol = linalg.solve(X.T.dot(X) + alpha * D.T.dot(D), XY + alpha * D.T.dot(u0))
         u = D.dot(sol).reshape((u.shape[0], v.shape[0], n_task), order='F').sum(1) / size_v
 
-        h = np.kron(np.ones(size_v) / size_u, 1 / u[:, 0])
+        h = np.kron(np.ones(size_v), 1 / u[:, 0])
         H = np.diag(h)
         sol = linalg.solve(X.T.dot(X) + alpha * H.T.dot(H), XY + alpha * H.T.dot(u0))
         v = H.dot(sol).reshape((u.shape[0], v.shape[0], n_task), order='F').sum(0) / size_u
@@ -483,7 +483,7 @@ if __name__ == '__main__':
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .1 * np.random.randn(X.shape[0])
     #y = np.array([i * y for i in range(1, 3)]).T
-    u, v = rank_one_proj(X.A, y, 1.0, size_u, verbose=True, rtol=1e-10)
+    u, v = rank_one_proj(X.A, y, .1, size_u, verbose=True, rtol=1e-10)
 
     import pylab as plt
     plt.matshow(B)
