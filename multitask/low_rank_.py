@@ -352,7 +352,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False):
 
 
 
-def rank_one_proj(X, Y, alpha, beta, size_u, u0=None, v0=None, rtol=1e-6, maxiter=1000, verbose=False):
+def rank_one_proj(X, Y, alpha, beta, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one model
 
@@ -402,11 +402,11 @@ def rank_one_proj(X, Y, alpha, beta, size_u, u0=None, v0=None, rtol=1e-6, maxite
         u0 = np.ones((size_u * size_v, n_task))
     if u.shape[0] == size_u:
         u = np.repeat(u, n_task).reshape((-1, n_task), order='F')
-    if v0 is None:
-        v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
+    if v is None:
+        v = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
     u = u.reshape((-1, n_task))
-    v0 = v0.reshape((-1, n_task))
+    v = v.reshape((-1, n_task))
 
     #cutoff = 1e-3
     if verbose:
@@ -443,29 +443,50 @@ def rank_one_proj(X, Y, alpha, beta, size_u, u0=None, v0=None, rtol=1e-6, maxite
     if verbose:
         print('Starting projection iteration ...')
 
+    sol = None
     while counter < maxiter:
         counter += 1
-        x0 = khatri_rao(v0, u)  # remove
-        d = np.kron(1 / v0[:, 0], np.ones(size_u) / size_v)
-        d[np.abs(d) > 1e12] = 1e12
-        h = np.kron(np.ones(size_v) / size_u, 1 / u[:, 0])
-        h[np.abs(h) > 1e12] = 1e12
-        s1 = 1. / (sigma * sigma + alpha * d * d + beta * h * h)
-        S = np.diag(s1)
+        if sol is not None:
+            obj0 = linalg.norm(Y - X.dot(sol), 'fro') ** 2 + alpha * (linalg.norm(D.dot(sol) - u0) ** 2)
+        else:
+            obj0 = None
+        d = np.kron(1 / v[:, 0], np.ones(size_u) / size_v)
         D = np.diag(d)
-        H = np.diag(h)
-        sol = linalg.solve(X.T.dot(X) + alpha * D.T.dot(D) + beta * H.T.dot(H), XY + alpha * u0)
-        # x0 = sol.reshape((u0.shape[0], v0.shape[0], n_task), order='F')
-        tmp = D.dot(sol).reshape((u.shape[0], v0.shape[0], n_task), order='F')
-        u = tmp.sum(1)
-        tmp = H.dot(sol).reshape((u.shape[0], v0.shape[0], n_task), order='F')
-        v0 = tmp.sum(0)
-        obj_new = linalg.norm(Y - X.dot(sol), 'fro') ** 2 + alpha * (linalg.norm(u - u0[:size_u]) ** 2)
-        print((linalg.norm(u - u0[:size_u]) ** 2))
+#        print alpha
+        sol = linalg.solve(X.T.dot(X) + alpha * D.T.dot(D), XY + alpha * D.T.dot(u0))
+        x0 = sol.reshape((u.shape[0], v.shape[0]), order='F')  # for n_task = 1
+        obj1 = linalg.norm(Y - X.dot(sol), 'fro') ** 2 + alpha * (linalg.norm(D.dot(sol) - u0) ** 2)
+        if obj0 is not None:
+            print obj0
+            print obj1
+            print
+        #print linalg.norm(D.dot(sol) - u0)
+        #import ipdb; ipdb.set_trace()
 
-        if verbose:
-            #print('TOL %s' % (linalg.norm(tol, np.inf) / obj_new))
-            print('OBJ %s' % obj_new)
+        #import ipdb; ipdb.set_trace()
+        #obj_old = linalg.norm(Y - X.dot(sol), 'fro') ** 2 + alpha * (linalg.norm(u - u0[:size_u]) ** 2)
+        u = D.dot(sol)[:size_u] #.reshape((u.shape[0], v.shape[0], n_task), order='F').sum(1) / size_v
+        v = np.dot(u.T, x0).T / np.dot(u.T, u)
+        import ipdb; ipdb.set_trace()
+        sol = np.dot(u, v.T).ravel(order='F')
+        #v = H.dot(sol).reshape((u.shape[0], v.shape[0]), order='F').sum(0)
+        # s, v = power2(x0, v, 100)
+        # tmp = v.reshape((1, v.shape[0], v.shape[1]))
+        # u = (x0 * tmp).sum(1) / s
+        # v = v * s
+        u = u.reshape((-1, 1))
+        v = v.reshape((-1, 1))
+        # c = np.dot(u.T, u0[:size_u])
+        # u *= c
+        # v /= c
+        obj_new = linalg.norm(Y - X.dot(sol), 'fro') ** 2 + alpha * (linalg.norm(D.dot(sol) - u0) ** 2)
+        #print((linalg.norm(u - u0[:size_u]) ** 2))
+
+        # if verbose:
+        #     #print('TOL %s' % (linalg.norm(tol, np.inf) / obj_new))
+        #     print('OBJ OLD %s' % obj_old)
+        #     print('OBJ     %s' % obj_new)
+        #     print
 
         #print(np.abs(obj_new - obj_old) / obj_new)
         if np.abs(obj_new - obj_old) < rtol * obj_new * 0.1:
@@ -473,7 +494,7 @@ def rank_one_proj(X, Y, alpha, beta, size_u, u0=None, v0=None, rtol=1e-6, maxite
 
         obj_old = obj_new
 
-    return u, v0
+    return u, v
 
 
 if __name__ == '__main__':
@@ -484,7 +505,7 @@ if __name__ == '__main__':
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .1 * np.random.randn(X.shape[0])
     #y = np.array([i * y for i in range(1, 3)]).T
-    u, v = rank_one_proj(X.A, y, 1000.0, 10.0, size_u, verbose=True, rtol=1e-10, maxiter=20)
+    u, v = rank_one_proj(X.A, y, 1000000000.0, 0., size_u, verbose=True, rtol=1e-10, maxiter=20)
 
     import pylab as plt
     plt.matshow(B)
