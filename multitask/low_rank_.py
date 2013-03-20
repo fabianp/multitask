@@ -352,7 +352,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False):
 
 
 
-def rank_one_proj(X, Y, alpha, beta, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000, verbose=False):
+def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000, verbose=False):
     """
     multi-target rank one model
 
@@ -458,7 +458,7 @@ def rank_one_proj(X, Y, alpha, beta, size_u, u0=None, v=None, rtol=1e-6, maxiter
 
         u = u.reshape((-1, 1))
         v = v.reshape((-1, 1))
-        obj_new = linalg.norm(Y - X.dot(sol), 'fro') ** 2 + alpha * (linalg.norm(D.dot(sol) - u0) ** 2)
+        obj_new = linalg.norm(Y - X.dot(sol), 'fro') ** 2 + alpha * (linalg.norm(u - u0[:size_u]) ** 2)
 
         if verbose:
             #print('TOL %s' % (linalg.norm(tol, np.inf) / obj_new))
@@ -483,7 +483,7 @@ if __name__ == '__main__':
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .1 * np.random.randn(X.shape[0])
     #y = np.array([i * y for i in range(1, 3)]).T
-    u, v = rank_one_proj(X.A, y, 1.0, 0., size_u, verbose=True, rtol=1e-10, maxiter=20)
+    u, v = rank_one_proj(X.A, y, 1.0, size_u, verbose=True, rtol=1e-10)
 
     import pylab as plt
     plt.matshow(B)
