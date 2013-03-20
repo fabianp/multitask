@@ -425,30 +425,20 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000,
     obj_old = np.inf
     counter = 0
 
-    def power2(A, q, n_iter=10):
-        for _ in range(n_iter):
-            z = (A * q).sum(1)
-            z = z.reshape((1, z.shape[0], z.shape[1]))
-            z = (A.transpose((1, 0, 2)) * z).sum(1)
-            q = (z / np.sqrt((z.T * z.T).sum(1)))
-            q = q.reshape((1, q.shape[0], q.shape[1]))
-            s = (A * q).sum(1)
-            s = s.reshape((1, s.shape[0], s.shape[1]))
-            s = (A.transpose((1, 0, 2)) * s).sum(1)
-            s = s.reshape((1, s.shape[0], s.shape[1]))
-            s = (s * q).sum(1)
-            assert s.size == n_task
-        return np.sqrt(s), q.reshape((q.shape[1], q.shape[2]))
-
     if verbose:
         print('Starting projection iteration ...')
 
     sol = None
+    U, S, Vt = linalg.svd(X, full_matrices=True)
     while counter < maxiter:
         counter += 1
-        d = np.kron(1 / v[:, 0], np.ones(size_u))
-        D = np.diag(d)
-        sol = linalg.solve(X.T.dot(X) + alpha * D.T.dot(D), XY + alpha * D.T.dot(u0))
+        d = np.kron(1 / v, np.ones((size_u, 1)))
+        D = np.diag(d.ravel())
+        sol0 = Vt.dot(XY + alpha * (d * u0))
+        sol0 = (1. / (np.diag(S * S) + alpha * D)).dot(sol0)
+        sol0 = Vt.T.dot(sol0)
+        sol = linalg.solve(X.T.dot(X) + alpha * D.T.dot(D), XY + alpha * (d * u0))
+        import ipdb; ipdb.set_trace()
         u = D.dot(sol).reshape((u.shape[0], v.shape[0], n_task), order='F').sum(1) / size_v
 
         h = np.kron(np.ones(size_v), 1 / u[:, 0])
