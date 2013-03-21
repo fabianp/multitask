@@ -296,8 +296,9 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, ma
         raise ValueError('Wrong shape for X, y')
 
     if u0 is None:
-        u0 = np.ones(size_u)
-    assert u0.size == size_u
+        u0 = np.ones((size_u, n_task))
+    if u0.size == size_u:
+        u0 = np.repeat(u0, n_task, axis=1)
     if v0 is None:
         v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
@@ -305,7 +306,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, ma
     #u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
     w0 = np.empty((size_u + size_v, n_task))
-    w0[:size_u] = u0[:, None]
+    w0[:size_u] = u0
     w0[size_u:] = v0
     w0 = w0.reshape((-1,), order='F')
 
@@ -327,7 +328,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, ma
         u, v = W[:size_u], W[size_u:]
         tmp = Y_ - matmat2(X_, u, v, n_task)
         grad = np.empty((size_u + size_v, n_task))  # TODO: do outside
-        grad[:size_u] = rmatmat1(X, v, tmp, n_task) - alpha * (u.T - u0).T
+        grad[:size_u] = rmatmat1(X, v, tmp, n_task) - alpha * (u - u0)
         grad[size_u:] = rmatmat2(X, u, tmp, n_task)
         return - grad.reshape((-1,), order='F')
 
