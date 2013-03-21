@@ -315,7 +315,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, ma
     def obj(X_, Y_, a, b):
         uv0 = khatri_rao(b, a)
         cost = .5 * linalg.norm(Y_ - X_.matvec(uv0), 'fro') ** 2
-        reg = alpha * linalg.norm(a.T - u0, 'fro') ** 2
+        reg = alpha * linalg.norm(a - u0, 'fro') ** 2
         return cost + reg
 
     def f(w, X_, Y_, n_task):
@@ -340,7 +340,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, ma
     for y_i in Y_split:
         w0_i = w0.reshape((size_u + size_v, n_task), order='F')[:, counter:(counter + y_i.shape[1])]
 
-        tmp = optimize.fmin_bfgs(f, w0_i, fprime=fprime, gtol=rtol,
+        tmp = optimize.fmin_cg(f, w0_i, fprime=fprime, gtol=rtol,
                     args=(X, y_i, y_i.shape[1]), maxiter=maxiter)
         W = tmp.reshape((-1, y_i.shape[1]), order='F')
         U[:, counter:counter + y_i.shape[1]] = W[:size_u]
