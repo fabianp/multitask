@@ -258,7 +258,7 @@ def rmatmat2(X, a, b, n_task):
     return tmp
 
 
-def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False):
+def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, maxiter=100):
     """
     multi-target rank one model
 
@@ -339,9 +339,9 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False):
     for y_i in Y_split:
         w0_i = w0.reshape((size_u + size_v, n_task), order='F')[:, counter:(counter + y_i.shape[1])]
 
-        tmp = optimize.minimize(f, w0_i, jac=fprime, tol=rtol,
-                                method='L-BFGS-B', args=(X, y_i, y_i.shape[1]))
-        W = tmp.x.reshape((-1, y_i.shape[1]), order='F')
+        tmp = optimize.fmin_bfgs(f, w0_i, fprime=fprime, gtol=rtol,
+                    args=(X, y_i, y_i.shape[1]), maxiter=maxiter)
+        W = tmp.reshape((-1, y_i.shape[1]), order='F')
         U[:, counter:counter + y_i.shape[1]] = W[:size_u]
         V[:, counter:counter + y_i.shape[1]] = W[size_u:]
         counter += y_i.shape[1]
@@ -429,21 +429,27 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000,
         print('Starting projection iteration ...')
 
     sol = None
-    U, S, Vt = linalg.svd(X, full_matrices=True)
+    U, svals, Vt = linalg.svd(X, full_matrices=True)
+    s = np.zeros((X.shape[1], 1))
+    s[:svals.size] = svals[:, None]
     while counter < maxiter:
         counter += 1
         d = np.kron(1 / v, np.ones((size_u, 1)))
-        D = np.diag(d.ravel())
-        sol0 = Vt.dot(XY + alpha * (d * u0))
-        sol0 = (1. / (np.diag(S * S) + alpha * D)).dot(sol0)
-        sol0 = Vt.T.dot(sol0)
-        sol = linalg.solve(X.T.dot(X) + alpha * D.T.dot(D), XY + alpha * (d * u0))
-        import ipdb; ipdb.set_trace()
-        u = D.dot(sol).reshape((u.shape[0], v.shape[0], n_task), order='F').sum(1) / size_v
+        sol0 = Vt.dot(XY + alpha * d * u0)
+        sol0 *= (1. / (s * s + alpha * d * d))
+        sol = Vt.T.dot(sol0)
+        u = (d * sol).reshape((u.shape[0], v.shape[0], n_task), order='F').sum(1) / size_v
 
-        h = np.kron(np.ones(size_v), 1 / u[:, 0])
-        H = np.diag(h)
+        h = np.kron(np.ones((size_v, 1)), 1 / u)
+        # import ipdb; ipdb.set_trace()
+        sol0 = Vt.dot(XY + alpha * h * u0)
+        sol0 *= (1. / (s * s + alpha * h * h))
+        sol1 = Vt.T.dot(sol0)
+        v = (h * sol).reshape((u.shape[0], v.shape[0], n_task), order='F').sum(0) / size_u
+
+        H = np.diag(h[:, 0])
         sol = linalg.solve(X.T.dot(X) + alpha * H.T.dot(H), XY + alpha * H.T.dot(u0))
+        import ipdb; ipdb.set_trace()
         v = H.dot(sol).reshape((u.shape[0], v.shape[0], n_task), order='F').sum(0) / size_u
 
         u = u.reshape((-1, 1))
@@ -451,7 +457,6 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000,
         obj_new = linalg.norm(Y - X.dot(sol), 'fro') ** 2 + alpha * (linalg.norm(u - u0[:size_u]) ** 2)
 
         if verbose:
-            #print('TOL %s' % (linalg.norm(tol, np.inf) / obj_new))
             print('OBJ OLD %s' % obj_old)
             print('OBJ     %s' % obj_new)
             print
@@ -473,7 +478,7 @@ if __name__ == '__main__':
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .1 * np.random.randn(X.shape[0])
     #y = np.array([i * y for i in range(1, 3)]).T
-    u, v = rank_one_proj(X.A, y, .1, size_u, verbose=True, rtol=1e-10)
+    u, v = rank_one(X.A, y, .1, size_u, verbose=True, rtol=1e-10)
 
     import pylab as plt
     plt.matshow(B)
