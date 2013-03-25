@@ -377,8 +377,6 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000,
     verbose : bool
         If True, prints the value of the objective
         function at each iteration
-    Mv : LinearOperator
-        preconditioner for the least squares problem ||y - X(u \kron I)v||
 
     Returns
     -------
