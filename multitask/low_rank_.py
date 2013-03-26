@@ -258,7 +258,7 @@ def rmatmat2(X, a, b, n_task):
     return tmp
 
 
-def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, maxiter=100):
+def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, maxiter=1000):
     """
     multi-target rank one model
 
@@ -298,6 +298,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, ma
     if u0 is None:
         u0 = np.ones((size_u, n_task))
     if u0.size == size_u:
+        u0 = u0.reshape((-1, 1))
         u0 = np.repeat(u0, n_task, axis=1)
     if v0 is None:
         v0 = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
@@ -312,18 +313,18 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, ma
 
     # .. some auxiliary functions ..
     # .. used in conjugate gradient ..
-    def obj(X_, Y_, a, b):
+    def obj(X_, Y_, a, b, u0):
         uv0 = khatri_rao(b, a)
         cost = .5 * linalg.norm(Y_ - X_.matvec(uv0), 'fro') ** 2
         reg = alpha * linalg.norm(a - u0, 'fro') ** 2
         return cost + reg
 
-    def f(w, X_, Y_, n_task):
+    def f(w, X_, Y_, n_task, u0):
         W = w.reshape((-1, n_task), order='F')
         u, v = W[:size_u], W[size_u:]
-        return obj(X_, Y_, u, v)
+        return obj(X_, Y_, u, v, u0)
 
-    def fprime(w, X_, Y_, n_task):
+    def fprime(w, X_, Y_, n_task, u0):
         W = w.reshape((-1, n_task), order='F')
         u, v = W[:size_u], W[size_u:]
         tmp = Y_ - matmat2(X_, u, v, n_task)
@@ -332,16 +333,16 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, ma
         grad[size_u:] = rmatmat2(X, u, tmp, n_task)
         return - grad.reshape((-1,), order='F')
 
-    n_split = Y.shape[1] // 100 + 1
+    n_split = Y.shape[1] // 20 + 1
     Y_split = np.array_split(Y, n_split, axis=1)
     U = np.zeros((size_u, n_task))
     V = np.zeros((size_v, n_task))
     counter = 0
     for y_i in Y_split:
         w0_i = w0.reshape((size_u + size_v, n_task), order='F')[:, counter:(counter + y_i.shape[1])]
-
-        tmp = optimize.fmin_cg(f, w0_i, fprime=fprime, gtol=rtol,
-                    args=(X, y_i, y_i.shape[1]), maxiter=maxiter)
+        u0_i = u0[:, counter:(counter + y_i.shape[1])]
+        tmp = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime, factr=rtol / np.finfo(np.float).eps,
+                    args=(X, y_i, y_i.shape[1], u0_i), maxfun=maxiter, disp=0)[0]
         W = tmp.reshape((-1, y_i.shape[1]), order='F')
         U[:, counter:counter + y_i.shape[1]] = W[:size_u]
         V[:, counter:counter + y_i.shape[1]] = W[size_u:]
