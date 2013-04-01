@@ -258,19 +258,20 @@ def rmatmat2(X, a, b, n_task):
     return tmp
 
 
-def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, maxiter=1000):
+def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=False, maxiter=1000):
     """
     multi-target rank one model
 
-        ||y - X vec(u v.T)||^2 + alpha * ||u - u_0||^2
+        ||y - X vec(u v.T) - Z w||^2 + alpha * ||u - u_0||^2
 
     Parameters
     ----------
-    X : sparse matrix, shape (n, p)
+    X : array-like, sparse matrix or LinearOperator, shape (n, p)
     Y : array-lime, shape (n, k)
     size_u : integer
         Must be divisor of p
     u0 : array
+    Z : array, sparse matrix or LinearOperator, shape (n, q)
     rtol : float
     maxiter : int
         maximum number of iterations
@@ -286,6 +287,13 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, ma
     """
 
     X = splinalg.aslinearoperator(X)
+    if Z is None:
+        # create identity operator
+        Z_ = splinalg.LinearOperator(shape=(X.shape[0], 1),
+            matvec=lambda x: np.zeros((X.shape[0], x.shape[1])),
+            rmatvec=lambda x: np.zeros((1, x.shape[1])))
+    else:
+        Z_ = splinalg.aslinearoperator(Z)
     Y = np.asarray(Y)
     if Y.ndim == 1:
         Y = Y.reshape((-1, 1))
@@ -306,51 +314,57 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, rtol=1e-6, verbose=False, ma
     size_v = X.shape[1] / size_u
     #u0 = u0.reshape((-1, n_task))
     v0 = v0.reshape((-1, n_task))
-    w0 = np.empty((size_u + size_v, n_task))
+    w0 = np.zeros((size_u + size_v + Z_.shape[1], n_task))
     w0[:size_u] = u0
-    w0[size_u:] = v0
+    w0[size_u:size_u + size_v] = v0
     w0 = w0.reshape((-1,), order='F')
 
     # .. some auxiliary functions ..
     # .. used in conjugate gradient ..
-    def obj(X_, Y_, a, b, u0):
+    def obj(X_, Y_, Z_, a, b, c, u0):
         uv0 = khatri_rao(b, a)
-        cost = .5 * linalg.norm(Y_ - X_.matvec(uv0), 'fro') ** 2
+        cost = .5 * linalg.norm(Y_ - X_.matvec(uv0) - Z_.matvec(c), 'fro') ** 2
         reg = alpha * linalg.norm(a - u0, 'fro') ** 2
         return cost + reg
 
     def f(w, X_, Y_, n_task, u0):
         W = w.reshape((-1, n_task), order='F')
-        u, v = W[:size_u], W[size_u:]
-        return obj(X_, Y_, u, v, u0)
+        u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
+        return obj(X_, Y_, Z_, u, v, c, u0)
 
     def fprime(w, X_, Y_, n_task, u0):
         W = w.reshape((-1, n_task), order='F')
-        u, v = W[:size_u], W[size_u:]
-        tmp = Y_ - matmat2(X_, u, v, n_task)
-        grad = np.empty((size_u + size_v, n_task))  # TODO: do outside
+        u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
+        tmp = Y_ - matmat2(X_, u, v, n_task) - Z_.matvec(c)
+        grad = np.empty((size_u + size_v + Z_.shape[1], n_task))  # TODO: do outside
         grad[:size_u] = rmatmat1(X, v, tmp, n_task) - alpha * (u - u0)
-        grad[size_u:] = rmatmat2(X, u, tmp, n_task)
+        grad[size_u:size_u + size_v] = rmatmat2(X, u, tmp, n_task)
+        grad[size_u + size_v:] = Z_.rmatvec(tmp)
         return - grad.reshape((-1,), order='F')
 
     n_split = Y.shape[1] // 20 + 1
     Y_split = np.array_split(Y, n_split, axis=1)
     U = np.zeros((size_u, n_task))
     V = np.zeros((size_v, n_task))
+    C = np.zeros((Z_.shape[1], n_task))
     counter = 0
     for y_i in Y_split:
-        w0_i = w0.reshape((size_u + size_v, n_task), order='F')[:, counter:(counter + y_i.shape[1])]
+        w0_i = w0.reshape((size_u + size_v + Z_.shape[1], n_task), order='F')[:, counter:(counter + y_i.shape[1])]
         u0_i = u0[:, counter:(counter + y_i.shape[1])]
         tmp = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime, factr=rtol / np.finfo(np.float).eps,
                     args=(X, y_i, y_i.shape[1], u0_i), maxfun=maxiter, disp=0)[0]
         W = tmp.reshape((-1, y_i.shape[1]), order='F')
         U[:, counter:counter + y_i.shape[1]] = W[:size_u]
-        V[:, counter:counter + y_i.shape[1]] = W[size_u:]
+        V[:, counter:counter + y_i.shape[1]] = W[size_u:size_u + size_v]
+        C[:, counter:counter + y_i.shape[1]] = W[size_u + size_v:]
         counter += y_i.shape[1]
         if verbose:
             print('Completed %.01f%%' % ((100. * counter) / Y.shape[1]))
 
-    return U, V
+    if Z is None:
+        return U, V
+    else:
+        return U, V, C
 
 
 
@@ -478,7 +492,7 @@ if __name__ == '__main__':
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .1 * np.random.randn(X.shape[0])
     #y = np.array([i * y for i in range(1, 3)]).T
-    u, v = rank_one(X.A, y, .1, size_u, verbose=True, rtol=1e-10)
+    u, v, w = rank_one(X.A, y, .1, size_u, Z=np.random.randn(X.shape[0], 3), verbose=True, rtol=1e-10)
 
     import pylab as plt
     plt.matshow(B)
