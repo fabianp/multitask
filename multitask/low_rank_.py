@@ -342,18 +342,18 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=F
         grad[size_u + size_v:] = Z_.rmatvec(tmp)
         return - grad.reshape((-1,), order='F')
 
-    n_split = Y.shape[1] // 20 + 1
-    Y_split = np.array_split(Y, n_split, axis=1)
+    Y_split = [Y] #np.array_split(Y, n_split, axis=1)
     U = np.zeros((size_u, n_task))
     V = np.zeros((size_v, n_task))
     C = np.zeros((Z_.shape[1], n_task))
     counter = 0
-    for y_i in Y_split:
+    for y_i in Y_split: # TODO; remove
         w0_i = w0.reshape((size_u + size_v + Z_.shape[1], n_task), order='F')[:, counter:(counter + y_i.shape[1])]
         u0_i = u0[:, counter:(counter + y_i.shape[1])]
-        tmp = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime, factr=rtol / np.finfo(np.float).eps,
-                    args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter, disp=0)[0]
-        W = tmp.reshape((-1, y_i.shape[1]), order='F')
+        out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime, factr=rtol / np.finfo(np.float).eps,
+                    args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter, disp=0)
+        print 'Gradient at optimum (shold be 0-ish): %s' % out[2]['grad']
+        W = out[0].reshape((-1, y_i.shape[1]), order='F')
         U[:, counter:counter + y_i.shape[1]] = W[:size_u]
         V[:, counter:counter + y_i.shape[1]] = W[size_u:size_u + size_v]
         C[:, counter:counter + y_i.shape[1]] = W[size_u + size_v:]
