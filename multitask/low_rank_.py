@@ -327,12 +327,12 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=F
         reg = alpha * linalg.norm(a - u0, 'fro') ** 2
         return cost + reg
 
-    def f(w, X_, Y_, n_task, u0):
+    def f(w, X_, Y_, Z_, n_task, u0):
         W = w.reshape((-1, n_task), order='F')
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
         return obj(X_, Y_, Z_, u, v, c, u0)
 
-    def fprime(w, X_, Y_, n_task, u0):
+    def fprime(w, X_, Y_, Z_, n_task, u0):
         W = w.reshape((-1, n_task), order='F')
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
         tmp = Y_ - matmat2(X_, u, v, n_task) - Z_.matvec(c)
@@ -352,7 +352,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=F
         w0_i = w0.reshape((size_u + size_v + Z_.shape[1], n_task), order='F')[:, counter:(counter + y_i.shape[1])]
         u0_i = u0[:, counter:(counter + y_i.shape[1])]
         tmp = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime, factr=rtol / np.finfo(np.float).eps,
-                    args=(X, y_i, y_i.shape[1], u0_i), maxfun=maxiter, disp=0)[0]
+                    args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter, disp=0)[0]
         W = tmp.reshape((-1, y_i.shape[1]), order='F')
         U[:, counter:counter + y_i.shape[1]] = W[:size_u]
         V[:, counter:counter + y_i.shape[1]] = W[size_u:size_u + size_v]
