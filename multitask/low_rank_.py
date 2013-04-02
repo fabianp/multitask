@@ -352,7 +352,8 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=F
         u0_i = u0[:, counter:(counter + y_i.shape[1])]
         out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime, factr=rtol / np.finfo(np.float).eps,
                     args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter, disp=0)
-        print 'Gradient at optimum (shold be 0-ish): %s' % out[2]['grad']
+        if out[2]['warnflag'] != 0:
+            print('Not converged')
         W = out[0].reshape((-1, y_i.shape[1]), order='F')
         U[:, counter:counter + y_i.shape[1]] = W[:size_u]
         V[:, counter:counter + y_i.shape[1]] = W[size_u:size_u + size_v]
