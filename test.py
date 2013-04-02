@@ -28,9 +28,12 @@ def test_low_rank_1():
     u2, s, v2 = splinalg.svds(y.reshape((10, 10), order='F'), 1)
     c = u1[0] / u2[0]
     testing.assert_allclose(u1, c * u2, rtol=1e-3)
+    u3, v3 = mt.rank_one(X, y, 0, 10, rtol=1e-12)
+    c = u3[0] / u2[0]
+    testing.assert_allclose(u3, c * u2, rtol=1e-3)
 
     y = np.random.randn(100, 2)
-    u1, v1 = mt.low_rank(X, y, 0, (10, 1))
+    u1, v1 = mt.low_rank(X, y, 0, (10, 1), rtol=1e-12)
     u2, s, v2 = splinalg.svds(y[:, 1].reshape((10, 10), order='F'), 1)
     c = u1[1][0] / u2[0]
     testing.assert_allclose(u1[1], c * u2, rtol=1e-3)
