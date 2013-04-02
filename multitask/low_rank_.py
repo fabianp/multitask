@@ -291,7 +291,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=F
         # create identity operator
         Z_ = splinalg.LinearOperator(shape=(X.shape[0], 1),
             matvec=lambda x: np.zeros((X.shape[0], x.shape[1])),
-            rmatvec=lambda x: np.zeros((1, x.shape[1])))
+            rmatvec=lambda x: np.zeros((1, x.shape[1])), dtype=np.float)
     else:
         Z_ = splinalg.aslinearoperator(Z)
     Y = np.asarray(Y)
@@ -323,7 +323,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=F
     # .. used in conjugate gradient ..
     def obj(X_, Y_, Z_, a, b, c, u0):
         uv0 = khatri_rao(b, a)
-        cost = .5 * linalg.norm(Y_ - X_.matvec(uv0) - Z_.matvec(c), 'fro') ** 2
+        cost = .5 * linalg.norm(Y_ - X_.matvec(uv0) - Z_.matmat(c), 'fro') ** 2
         reg = alpha * linalg.norm(a - u0, 'fro') ** 2
         return cost + reg
 
@@ -335,7 +335,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=F
     def fprime(w, X_, Y_, Z_, n_task, u0):
         W = w.reshape((-1, n_task), order='F')
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
-        tmp = Y_ - matmat2(X_, u, v, n_task) - Z_.matvec(c)
+        tmp = Y_ - matmat2(X_, u, v, n_task) - Z_.matmat(c)
         grad = np.empty((size_u + size_v + Z_.shape[1], n_task))  # TODO: do outside
         grad[:size_u] = rmatmat1(X, v, tmp, n_task) - alpha * (u - u0)
         grad[size_u:size_u + size_v] = rmatmat2(X, u, tmp, n_task)
