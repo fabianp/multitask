@@ -283,7 +283,8 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=F
     -------
     U : array, shape (size_u, k)
     V : array, shape (p / size_u, k)
-    W : XXX
+    W : array,
+        only returned if Z is specified
     """
 
     X = splinalg.aslinearoperator(X)
@@ -354,13 +355,14 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=F
                     args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter, disp=0)
         if out[2]['warnflag'] != 0:
             print('Not converged')
+        else:
+            if verbose:
+                print('Converged')
         W = out[0].reshape((-1, y_i.shape[1]), order='F')
         U[:, counter:counter + y_i.shape[1]] = W[:size_u]
         V[:, counter:counter + y_i.shape[1]] = W[size_u:size_u + size_v]
         C[:, counter:counter + y_i.shape[1]] = W[size_u + size_v:]
         counter += y_i.shape[1]
-        if verbose:
-            print('Completed %.01f%%' % ((100. * counter) / Y.shape[1]))
 
     if Z is None:
         return U, V
