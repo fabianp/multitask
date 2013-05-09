@@ -18,8 +18,6 @@ def ridge(X, y, alpha, beta, n_task, method='iterative', M=None, rtol=1e-5, verb
     alpha: float
     beta: float
     method: {'iterative', 'direct'}
-    shape_B: tuple of size (2,)
-        Contains the desired shape of the output matrix
 
     Returns
     -------
