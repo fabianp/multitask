@@ -466,7 +466,7 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000,
 
         H = np.diag(h[:, 0])
         sol = linalg.solve(X.T.dot(X) + alpha * H.T.dot(H), XY + alpha * H.T.dot(u0))
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
         v = H.dot(sol).reshape((u.shape[0], v.shape[0], n_task), order='F').sum(0) / size_u
 
         u = u.reshape((-1, 1))
@@ -487,7 +487,83 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000,
     return u, v
 
 
+def rank_one_proj2(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6,
+                   maxiter=1000, verbose=False):
+    """
+    multi-target rank one model
+
+        ||y - X vec(u v.T)||_2 ^2
+
+    TODO: prior_u
+
+    Parameters
+    ----------
+    X : array-like, shape (n, p)
+    Y : array-like, shape (n, k)
+    size_u : integer
+        Must be divisor of p
+    u0 : array
+        Initial value for u
+    v0 : array
+        Initial value for v
+    rtol : float
+    maxiter : int
+        maximum number of iterations
+    verbose : bool
+        If True, prints the value of the objective
+        function at each iteration
+
+    Returns
+    -------
+    U : array, shape (size_u, k)
+    V : array, shape (p / size_u, k)
+    W : XXX
+    """
+
+
+    Y = np.asarray(Y)
+    if Y.ndim == 1:
+        Y = Y.reshape((-1, 1))
+    n_task = Y.shape[1]
+    size_v = X.shape[1] / size_u
+
+    # .. check dimensions in input ..
+    if X.shape[0] != Y.shape[0]:
+        raise ValueError('Wrong shape for X, y')
+
+    u = np.random.randn(size_u * n_task)
+    if u.shape[0] == size_u:
+        u = np.repeat(u, n_task).reshape((-1, n_task), order='F')
+    if v is None:
+        v = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
+
+    u = u.reshape((-1, n_task), order='F')
+    v = v.reshape((-1, n_task), order='F')
+    w0 = khatri_rao(v, u)
+
+    XY = np.dot(X.T, Y)
+    if verbose:
+        print('Done')
+
+    ridge_proj = linalg.pinv2(X.T.dot(X) + 1 * np.eye(X.shape[1]))
+
+    for _ in range(20):
+        w0 = ridge_proj.dot(XY + 1 * w0)
+        #import ipdb; ipdb.set_trace()
+        for j in range(n_task):
+            w_tmp = w0[:, j].reshape((size_u, size_v), order='F')
+            u_svd, _, vt_svd = linalg.svd(w_tmp, full_matrices=False)
+            u[:, j], v[:, j] = u_svd[:, 0], vt_svd[0]
+            w0[:, j] = np.outer(u[:, j], v[:, j]).ravel('F')
+        #import ipdb; ipdb.set_trace()
+        obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
+        print(obj_new)
+
+    return u, v
+
+
 if __name__ == '__main__':
+    np.random.seed(0)
     size_u, size_v = 9, 48
     X = sparse.csr_matrix(np.random.randn(100, size_u * size_v))
     Z = np.random.randn(1000, 20)
@@ -495,7 +571,7 @@ if __name__ == '__main__':
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .1 * np.random.randn(X.shape[0])
     #y = np.array([i * y for i in range(1, 3)]).T
-    u, v, w = rank_one(X.A, y, .1, size_u, Z=np.random.randn(X.shape[0], 3), verbose=True, rtol=1e-10)
+    u, v = rank_one_proj2(X.A, y, .001, size_u, verbose=True)
 
     import pylab as plt
     plt.matshow(B)
