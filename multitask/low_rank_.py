@@ -487,8 +487,8 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000,
     return u, v
 
 
-def rank_one_proj2(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6,
-                   maxiter=1000, verbose=False):
+def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-6,
+                   maxiter=100, verbose=False):
     """
     multi-target rank one model
 
@@ -531,11 +531,14 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6,
     if X.shape[0] != Y.shape[0]:
         raise ValueError('Wrong shape for X, y')
 
-    u = np.random.randn(size_u * n_task)
+
+    if u0 is None:
+        u0 = np.random.randn(size_u, 1)
+    H = np.kron(np.eye(size_v), u0)
+    v = linalg.lstsq(X.dot(H), Y)[0]
+    u = u0
     if u.shape[0] == size_u:
         u = np.repeat(u, n_task).reshape((-1, n_task), order='F')
-    if v is None:
-        v = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
 
     u = u.reshape((-1, n_task), order='F')
     v = v.reshape((-1, n_task), order='F')
@@ -547,16 +550,16 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6,
 
     ridge_proj = linalg.pinv2(X.T.dot(X) + 1 * np.eye(X.shape[1]))
 
-    for _ in range(20):
+    for _ in range(maxiter):
         w0 = ridge_proj.dot(XY + 1 * w0)
-        #import ipdb; ipdb.set_trace()
         for j in range(n_task):
             w_tmp = w0[:, j].reshape((size_u, size_v), order='F')
-            u_svd, _, vt_svd = linalg.svd(w_tmp, full_matrices=False)
-            u[:, j], v[:, j] = u_svd[:, 0], vt_svd[0]
+            u_svd, s, vt_svd = linalg.svd(w_tmp, full_matrices=False)
+            u[:, j], v[:, j] = s[0] * u_svd[:, 0], vt_svd[0]
             w0[:, j] = np.outer(u[:, j], v[:, j]).ravel('F')
         #import ipdb; ipdb.set_trace()
         obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
+        #break
         print(obj_new)
 
     return u, v
@@ -570,7 +573,7 @@ if __name__ == '__main__':
     u_true, v_true = np.random.rand(size_u, 2), 1 + .1 * np.random.randn(size_v, 2)
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .1 * np.random.randn(X.shape[0])
-    #y = np.array([i * y for i in range(1, 3)]).T
+    y = np.array([i * y for i in range(1, 3)]).T
     u, v = rank_one_proj2(X.A, y, .001, size_u, verbose=True)
 
     import pylab as plt
