@@ -488,7 +488,7 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000,
 
 #@profile
 def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-6,
-                   maxiter=200, verbose=False):
+                   maxiter=50, verbose=False, ridge_proj= None):
     """
     multi-target rank one model
 
@@ -532,14 +532,19 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-6,
         raise ValueError('Wrong shape for X, y')
 
     import pylab as pl
+    plot = True
 
 
     if u0 is None:
         u0 = np.random.randn(size_u, 1)
     if u0.ndim == 1:
         u0 = u0.reshape((-1, 1))
-    H = np.kron(np.eye(size_v), u0)
-    v = linalg.lstsq(X.dot(H), Y)[0]
+    if not u0.shape[1]:
+        raise NotImplemented
+    print('Precomputing solution')
+    H = X.dot(np.kron(np.eye(size_v), u0))
+    v = linalg.lstsq(H, Y)[0]
+    print('Done')
     u = u0
     if u.shape[0] == size_u:
         u = np.repeat(u, n_task).reshape((-1, n_task), order='C')
@@ -551,36 +556,48 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-6,
     XY = X.T.dot(Y)
     if verbose:
         print('Done')
+    alpha = 1.
 
-    from scikits.sparse.cholmod import cholesky_AAt
-    factor = cholesky_AAt(X.T, beta=1.)
+    if ridge_proj is None:
+        from scikits.sparse.cholmod import cholesky_AAt
+        print('CHOL')
+        factor = cholesky_AAt(X.T, beta=alpha)
+        print('END CHOL')
+        ridge_proj = lambda x: factor.solve_A(x)
 
-    fig = pl.figure()
-    pl.show()
-    for i in range(maxiter):
-        print('Iter %s' % i)
-        rhs = XY + 1 * w0
-        ridge_sol = factor.solve_A(rhs)
-        # import ipdb; ipdb.set_trace()
-        for j in range(n_task):
-            w_tmp = ridge_sol[:, j].reshape((size_u, size_v), order='F')
-            u_svd, s, vt_svd = linalg.svd(w_tmp, full_matrices=False)
-            u[:, j], v[:, j] = s[0] * u_svd[:, 0], vt_svd[0]
-            w0[:, j] = np.outer(u[:, j], v[:, j]).ravel('F')
-        #import ipdb; ipdb.set_trace()
-        obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
-        #break
-        print(obj_new)
-        pl.clf()
-        for j in range(n_task):
-            tmp = u[:, j]
-            if tmp[5] < 0:
-                tmp = -tmp
-            tmp /= np.abs(tmp).max()
-            pl.plot(tmp)
-        pl.ylim((-1, 1.2))
-        pl.draw()
-        pl.xlim((0, size_u))
+    if plot:
+        fig = pl.figure()
+        pl.show()
+    try:
+        for i in range(maxiter):
+            print('Iter %s' % i)
+            rhs = XY + alpha * w0
+            print('RIDGE STEP')
+            ridge_sol = ridge_proj(rhs)
+            # import ipdb; ipdb.set_trace()
+            print('SVD STEP')
+            for j in range(n_task):
+                w_tmp = ridge_sol[:, j].reshape((size_u, size_v), order='F')
+                u_svd, s, vt_svd = linalg.svd(w_tmp, full_matrices=False)
+                u[:, j], v[:, j] = s[0] * u_svd[:, 0], vt_svd[0]
+                w0[:, j] = np.outer(u[:, j], v[:, j]).ravel('F')
+            #import ipdb; ipdb.set_trace()
+            obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
+            #break
+            print(obj_new)
+            if plot:
+                print('PLOT')
+                pl.clf()
+                tmp = u.copy()
+                sgn = np.sign(u.T.dot(u0.ravel()))
+                tmp *= sgn
+                tmp = tmp / np.sqrt((tmp * tmp).sum(0))
+                pl.plot(tmp)
+#                pl.ylim((-1, 1.2))
+                pl.draw()
+                pl.xlim((0, size_u))
+    except KeyboardInterrupt:
+        pass
         # pl.savefig('%03d.png' % i)
 
     return u, v
