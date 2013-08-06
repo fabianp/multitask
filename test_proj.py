@@ -36,7 +36,7 @@ print('Done')
 print('Detrending')
 Y = scipy.signal.detrend(Y, bp=np.linspace(0, X.shape[0], 7 * 5).astype(np.int),
                           axis=0, type='linear')
-Y = Y[:, :1000]
+Y = Y[:, :500]
 
 # .. standardize ..
 #Y = Y.reshape((35, -1, Y.shape[1]))

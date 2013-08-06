@@ -487,7 +487,7 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000,
     return u, v
 
 #@profile
-def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-6,
+def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-3,
                    maxiter=50, verbose=False, ls_proj= None):
     """
     multi-target rank one model
@@ -556,6 +556,7 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-6,
 
     # import ipdb; ipdb.set_trace()
     from scikits.sparse.cholmod import cholesky
+    obj_old = np.inf
 
     if plot:
         fig = pl.figure()
@@ -587,6 +588,10 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-6,
                 w0[:, j] = np.outer(u_svd[:, 0], s[0] * vt_svd[0]).ravel('F')
             obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
             print(obj_new)
+            print(np.abs(obj_old - obj_new) / obj_new)
+            if np.abs(obj_old - obj_new) / obj_new < rtol:
+                break
+            obj_old = obj_new
             if plot:
                 print('PLOT')
                 pl.clf()
