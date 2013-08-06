@@ -488,7 +488,7 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000,
 
 #@profile
 def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-6,
-                   maxiter=50, verbose=False, ridge_proj= None):
+                   maxiter=50, verbose=False, ls_proj= None):
     """
     multi-target rank one model
 
@@ -541,49 +541,51 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-6,
         u0 = u0.reshape((-1, 1))
     if not u0.shape[1]:
         raise NotImplemented
-    print('Precomputing solution')
+    print('Precomputing initial step')
     H = X.dot(np.kron(np.eye(size_v), u0))
     v = linalg.lstsq(H, Y)[0]
     print('Done')
-    u = u0
-    if u.shape[0] == size_u:
-        u = np.repeat(u, n_task).reshape((-1, n_task), order='C')
-
-    u = u.reshape((-1, n_task), order='F')
-    v = v.reshape((-1, n_task), order='F')
+    u = np.repeat(u0, n_task).reshape((-1, n_task))
+    u = np.asfortranarray(u)
     w0 = khatri_rao(v, u)
 
     XY = X.T.dot(Y)
+    alpha = 1.
     if verbose:
         print('Done')
-    alpha = 1.
 
-    if ridge_proj is None:
-        from scikits.sparse.cholmod import cholesky_AAt
-        print('CHOL')
-        factor = cholesky_AAt(X.T, beta=alpha)
-        print('END CHOL')
-        ridge_proj = lambda x: factor.solve_A(x)
+    # import ipdb; ipdb.set_trace()
+    from scikits.sparse.cholmod import cholesky
 
     if plot:
         fig = pl.figure()
         pl.show()
     try:
         for i in range(maxiter):
+            K = X.T.dot(X)
+            tmp = np.zeros(size_u)
+            tmp[0] = alpha
+            tmp[-1] = alpha
+            diag = np.concatenate([tmp] * size_v)
+            K = K + sparse.dia_matrix((diag, [0]), shape=K.shape)
+            factor = cholesky(K, beta=alpha)
             print('Iter %s' % i)
-            rhs = XY + alpha * w0
-            print('RIDGE STEP')
-            ridge_sol = ridge_proj(rhs)
+            print('LS STEP')
             # import ipdb; ipdb.set_trace()
+            rhs = XY + alpha * w0
+            #rhs[0] += 10 * alpha * w0[0]    # border conditions
+            #rhs[-1] += 10 * alpha * w0[-1]
+            ridge_sol = factor.solve_A(rhs)
+            if i % 5 == 0:
+                alpha *= 2.
             print('SVD STEP')
             for j in range(n_task):
                 w_tmp = ridge_sol[:, j].reshape((size_u, size_v), order='F')
                 u_svd, s, vt_svd = linalg.svd(w_tmp, full_matrices=False)
-                u[:, j], v[:, j] = s[0] * u_svd[:, 0], vt_svd[0]
-                w0[:, j] = np.outer(u[:, j], v[:, j]).ravel('F')
-            #import ipdb; ipdb.set_trace()
+                #import ipdb; ipdb.set_trace()
+                u[:, j], v[:, j] = u_svd[:, 0], s[0] * vt_svd[0]
+                w0[:, j] = np.outer(u_svd[:, 0], s[0] * vt_svd[0]).ravel('F')
             obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
-            #break
             print(obj_new)
             if plot:
                 print('PLOT')
@@ -591,7 +593,7 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-6,
                 tmp = u.copy()
                 sgn = np.sign(u.T.dot(u0.ravel()))
                 tmp *= sgn
-                tmp = tmp / np.sqrt((tmp * tmp).sum(0))
+                #tmp = tmp / np.sqrt((tmp * tmp).sum(0))
                 pl.plot(tmp)
 #                pl.ylim((-1, 1.2))
                 pl.draw()
