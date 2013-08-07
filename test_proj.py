@@ -1,22 +1,16 @@
-
 import tempfile
 
 import scipy
 import scipy.io
 import pylab as pl
 from scipy import linalg, signal
+
 from scipy.sparse import linalg as splinalg
-from sklearn import cross_validation
-
-import hrf_estimation as he # pip install -U hrf_estimation
-from nipy.modalities.fmri import hemodynamic_models as hdm
-
-import numpy as np
-
 
 DIR = tempfile.mkdtemp()
 fir_length = 20
 canonical = hdm.glover_hrf(1., 1., fir_length)
+
 
 print('Loading data')
 ds = np.DataSource(DIR)
@@ -78,3 +72,4 @@ pl.draw()
 # km = cluster.KMeans(2)
 # km.fit(u.T)
 # np.save('cluster.npy', km.labels_)
+

@@ -258,7 +258,8 @@ def rmatmat2(X, a, b, n_task):
     return tmp
 
 
-def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=False, maxiter=1000):
+def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
+             rtol=1e-6, verbose=False, maxiter=1000, callback=None):
     """
     multi-target rank one model
 
@@ -352,7 +353,8 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None, rtol=1e-6, verbose=F
         w0_i = w0.reshape((size_u + size_v + Z_.shape[1], n_task), order='F')[:, counter:(counter + y_i.shape[1])]
         u0_i = u0[:, counter:(counter + y_i.shape[1])]
         out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime, factr=rtol / np.finfo(np.float).eps,
-                    args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter, disp=0)
+                    args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter,
+                    disp=0, callback=callback)
         if out[2]['warnflag'] != 0:
             print('Not converged')
         else:
