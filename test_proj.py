@@ -46,22 +46,33 @@ def ls_proj(x):
 #Y = Y.reshape((-1, Y.shape[2]))
 print('Done')
 
-from multitask.low_rank_ import rank_one_proj2
+from multitask.low_rank_ import rank_one_proj2, rank_one
 
-from sklearn import cross_validation
-cv = cross_validation.KFold(Y.shape[0], 3)
-train, test = iter(cv).next()
+#from sklearn import cross_validation
+#cv = cross_validation.KFold(Y.shape[0], n_folds=20, shuffle=False)
+train = np.arange(X.shape[0] - 10)
+test = np.arange(X.shape[0] - 10, X.shape[0])
+#train, test = iter(cv).next()
 print('Calling rank_one_proj2')
 out = rank_one_proj2(X[train], Y[train], 0., fir_length, u0=canonical,
-                     maxiter=100,
-                     ls_proj=ls_proj)
+                     maxiter=100, ls_proj=ls_proj, rtol=1e-6)
+#out = rank_one(X, Y, 0, fir_length, u0=canonical, rtol=1e-6, verbose=False,
+#          maxiter=1000)
+
 u_train, v_train = out
 
 # now perform a GLM using the previous HRF
+total = 0.
 size_v = X.shape[1] / fir_length
-H = X[test].dot(np.kron(np.eye(size_v), u_train))
-v_test = linalg.lstsq(H, Y[test])[0]
-print(linalg.norm(Y[test] - X.dot(np.outer(u_train, v_test))))
+for i, u_t in enumerate(u_train.T):
+    u_t = u_t.reshape((-1, 1))
+    H = X[test].dot(np.kron(np.eye(size_v), u_t))
+    v_test = linalg.lstsq(H, Y[test, i])[0]
+    w_test = np.outer(u_t, v_test).ravel('F')
+    tmp = linalg.norm(Y[test, i] - X[test].dot(w_test))
+    print(tmp)
+    total += tmp
+print(total)
 
 
 # fig = pl.figure()

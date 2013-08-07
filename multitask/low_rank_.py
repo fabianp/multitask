@@ -577,7 +577,7 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-3,
                 w0[:, j] = np.outer(u_svd[:, 0], s[0] * vt_svd[0]).ravel('F')
             obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
             print('LOSS: %s' % obj_new)
-            print('TOL: %s' % np.abs(obj_old - obj_new) / obj_new)
+            print('TOL: %s' % (np.abs(obj_old - obj_new) / obj_new))
             if np.abs(obj_old - obj_new) / obj_new < rtol:
                 print('Converged')
                 break
