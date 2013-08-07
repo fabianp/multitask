@@ -1,4 +1,5 @@
 import tempfile
+import numpy as np
 
 import scipy
 import scipy.io
@@ -6,6 +7,7 @@ import pylab as pl
 from scipy import linalg, signal
 
 from scipy.sparse import linalg as splinalg
+from nipy.modalities.fmri import hemodynamic_models as hdm
 
 DIR = tempfile.mkdtemp()
 fir_length = 20
@@ -18,19 +20,25 @@ print('X')
 X = scipy.io.mmread(ds.open('X.mtx')).tocsr()
 print('nullspace')
 X_nullspace = scipy.io.mmread(ds.open('X_nullspace.mtx')).tocsr()
+Y = scipy.io.mmread(ds.open('Y.mtx.gz'))
 # print('K_inv')
 # K_inv = scipy.io.mmread(ds.open('K_inv.mtx')).tocsr()
 #ridge_proj = lambda x: K_inv.dot(x)
-print('Y')
-Y = np.load('Y_10000.npy')
 # drifts = scipy.io.mmread(ds.open('drifts.mtx.gz'))
 print('Done')
 
 
 print('Detrending')
-Y = scipy.signal.detrend(Y, bp=np.linspace(0, X.shape[0], 7 * 5).astype(np.int),
-                          axis=0, type='linear')
+Y = scipy.signal.detrend(
+    Y, bp=np.linspace(0, X.shape[0], 7 * 5).astype(np.int),
+    axis=0, type='linear')
 Y = Y[:, :500]
+
+ls_sol = [splinalg.lsqr(X, Y[:, i])[0] for i in range(Y.shape[1])]
+ls_sol = np.array(ls_sol).T
+def ls_proj(x):
+    proj = ls_sol + X_nullspace.dot(X_nullspace.T.dot(x))
+    return proj
 
 # .. standardize ..
 #Y = Y.reshape((35, -1, Y.shape[1]))
@@ -40,18 +48,30 @@ print('Done')
 
 from multitask.low_rank_ import rank_one_proj2
 
+from sklearn import cross_validation
+cv = cross_validation.KFold(Y.shape[0], 3)
+train, test = iter(cv).next()
 print('Calling rank_one_proj2')
-out = rank_one_proj2(X, Y, 0., fir_length, u0=canonical, maxiter=100)
-u, v = out
+out = rank_one_proj2(X[train], Y[train], 0., fir_length, u0=canonical,
+                     maxiter=100,
+                     ls_proj=ls_proj)
+u_train, v_train = out
 
-fig = pl.figure()
-tmp = u.copy()
-sgn = np.sign(u.T.dot(canonical.ravel()))
-tmp *= sgn
-tmp = tmp / np.sqrt((tmp * tmp).sum(0))
-pl.plot(tmp)
-u = tmp
-pl.draw()
+# now perform a GLM using the previous HRF
+size_v = X.shape[1] / fir_length
+H = X[test].dot(np.kron(np.eye(size_v), u_train))
+v_test = linalg.lstsq(H, Y[test])[0]
+print(linalg.norm(Y[test] - X.dot(np.outer(u_train, v_test))))
+
+
+# fig = pl.figure()
+# tmp = u_train.copy()
+# sgn = np.sign(u_train.T.dot(canonical.ravel()))
+# tmp *= sgn
+# tmp = tmp / np.sqrt((tmp * tmp).sum(0))
+# pl.plot(tmp)
+# u = tmp
+# pl.draw()
 
 
 # from multitask.low_rank_ import rank_one

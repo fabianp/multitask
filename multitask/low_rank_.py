@@ -551,13 +551,11 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-3,
     u = np.asfortranarray(u)
     w0 = khatri_rao(v, u)
 
-    XY = X.T.dot(Y)
+    #XY = X.T.dot(Y)
     alpha = 1.
     if verbose:
         print('Done')
 
-    # import ipdb; ipdb.set_trace()
-    from scikits.sparse.cholmod import cholesky
     obj_old = np.inf
 
     if plot:
@@ -565,33 +563,23 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-3,
         pl.show()
     try:
         for i in range(maxiter):
-            K = X.T.dot(X)
-            tmp = np.zeros(size_u)
-            tmp[0] = alpha
-            tmp[-1] = alpha
-            diag = np.concatenate([tmp] * size_v)
-            K = K + sparse.dia_matrix((diag, [0]), shape=K.shape)
-            factor = cholesky(K, beta=alpha)
             print('Iter %s' % i)
             print('LS STEP')
-            # import ipdb; ipdb.set_trace()
-            rhs = XY + alpha * w0
-            #rhs[0] += 10 * alpha * w0[0]    # border conditions
-            #rhs[-1] += 10 * alpha * w0[-1]
-            ridge_sol = factor.solve_A(rhs)
+            w0 = ls_proj(w0)
             if i % 5 == 0:
                 alpha *= 2.
             print('SVD STEP')
             for j in range(n_task):
-                w_tmp = ridge_sol[:, j].reshape((size_u, size_v), order='F')
+                w_tmp = w0[:, j].reshape((size_u, size_v), order='F')
                 u_svd, s, vt_svd = linalg.svd(w_tmp, full_matrices=False)
                 #import ipdb; ipdb.set_trace()
                 u[:, j], v[:, j] = u_svd[:, 0], s[0] * vt_svd[0]
                 w0[:, j] = np.outer(u_svd[:, 0], s[0] * vt_svd[0]).ravel('F')
             obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
-            print(obj_new)
-            print(np.abs(obj_old - obj_new) / obj_new)
+            print('LOSS: %s' % obj_new)
+            print('TOL: %s' % np.abs(obj_old - obj_new) / obj_new)
             if np.abs(obj_old - obj_new) / obj_new < rtol:
+                print('Converged')
                 break
             obj_old = obj_new
             if plot:
