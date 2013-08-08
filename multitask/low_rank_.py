@@ -374,7 +374,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
         u0_i = u0[:, counter:(counter + y_i.shape[1])]
         out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime, factr=rtol / np.finfo(np.float).eps,
                     args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter,
-                    disp=0, callback=plot)
+                    disp=0, callback=callback)
         if out[2]['warnflag'] != 0:
             print('Not converged')
         else:
@@ -393,7 +393,8 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
 
 
 
-def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6, maxiter=1000, verbose=False):
+def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6,
+                  maxiter=1000, verbose=False):
     """
     multi-target rank one model
 
@@ -632,7 +633,7 @@ def power_method(X, Q, max_iter):
 
 
 def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
-                   maxiter=50, verbose=False, ls_proj= None):
+                   maxiter=50, verbose=False, ls_proj= None, callback=None):
     """
     multi-target rank one model
 
@@ -685,30 +686,24 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
     if u0 is None:
         u0 = np.random.randn(size_u, 1)
     if u0.ndim == 1:
-        u0 = u0.reshape((-1, 1))
-    if not u0.shape[1]:
-        raise NotImplemented
-    print('Precomputing initial step')
-    H = X.dot(np.kron(np.eye(size_v), u0))
-    v = linalg.lstsq(H, Y)[0]
-    print('Done')
-    u = np.repeat(u0, n_task).reshape((-1, n_task))
+        u = np.repeat(u0, n_task).reshape((-1, n_task))
     u = np.asfortranarray(u)
+    v = np.random.randn(size_v, n_task)
     w0 = khatri_rao(v, u)
-
+    if ls_proj is not None:
+        w0 = ls_proj(w0)
 
     lipsch = splinalg.svds(X, 1)[1][0] ** 2
     step_size = 1. / lipsch
     obj_old = np.inf
-    plot = False
 
     if plot:
         fig = pl.figure()
         pl.show()
 
     xk1 = w0.copy()
-    for i in range(maxiter):
-        print('ITER: %s' % i)
+    for n_iter in range(maxiter):
+        print('ITER: %s' % n_iter)
         print('GRADIENT')
         grad = - X.T.dot(Y - X.dot(w0))
         w0 -= step_size * grad
@@ -725,7 +720,7 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
             u, v = power_method(w_tmp, v, 1)
             w0 = khatri_rao(v, u)
         # Nesterov step
-        tmp = w0 + (i - 1.) / (i + 2.) * (w0 - xk1)
+        tmp = w0 + (n_iter - 1.) / (n_iter + 2.) * (w0 - xk1)
         xk1 = w0
         w0 = tmp
         obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
@@ -746,6 +741,8 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
             #                pl.ylim((-1, 1.2))
             pl.draw()
             pl.xlim((0, size_u))
+        if callback is not None:
+            callback(w0)
     return u, v
 
 if __name__ == '__main__':

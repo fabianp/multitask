@@ -1,5 +1,6 @@
 import tempfile
 import numpy as np
+from datetime import datetime
 
 import scipy
 import scipy.io
@@ -22,7 +23,7 @@ print('nullspace')
 X_nullspace = scipy.io.mmread(ds.open('X_nullspace.mtx')).tocsr()
 #Y = scipy.io.mmread(ds.open('Y.mtx.gz'))
 Y = np.load('Y_10000.npy')
-#Y = Y[:, :1000]
+Y = Y[:, :100]
 # print('K_inv')
 # K_inv = scipy.io.mmread(ds.open('K_inv.mtx')).tocsr()
 #ridge_proj = lambda x: K_inv.dot(x)
@@ -48,7 +49,7 @@ Y = scipy.signal.detrend(
 #Y = Y.reshape((-1, Y.shape[2]))
 print('Done')
 
-from multitask.low_rank_ import rank_one_proj2, rank_one, rank_one_gradproj
+from multitask.low_rank_ import rank_one_proj2, rank_one, rank_one_gradproj, khatri_rao
 
 #from sklearn import cross_validation
 #cv = cross_validation.KFold(Y.shape[0], n_folds=20, shuffle=False)
@@ -57,12 +58,40 @@ test = np.arange(X.shape[0] - 10, X.shape[0])
 #train, test = iter(cv).next()
 print('Calling rank_one_proj2')
 
-out = rank_one_gradproj(X, Y, 0, fir_length, u0=canonical, rtol=1e-6,
-                    verbose=False, maxiter=100)
 
-# out = rank_one(X, Y, 0, fir_length, u0=canonical, rtol=1e-6, verbose=False,
-#                maxiter=100)
-#
+loss = []
+timings = []
+
+def callback(w):
+    loss.append(.5 * linalg.norm(Y - X.dot(w)))
+    timings.append((datetime.now() - start).total_seconds())
+
+start = datetime.now()
+out = rank_one_gradproj(X, Y, 0, fir_length, u0=canonical, rtol=1e-6,
+                    verbose=False, maxiter=40, ls_proj=None, callback=callback)
+
+
+loss2 = []
+timings2 = []
+def cb2(w):
+    n_task = Y.shape[1]
+    size_u = fir_length
+    size_v = X.shape[1] / fir_length
+    W = w.reshape((-1, n_task), order='F')
+    u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
+    w = khatri_rao(v, u)
+    loss2.append(.5 * linalg.norm(Y - X.dot(w)))
+    timings2.append((datetime.now() - start).total_seconds())
+start = datetime.now()
+out = rank_one(X, Y, 0, fir_length, u0=canonical, rtol=1e-6, verbose=False,
+               maxiter=60, callback=cb2)
+
+pl.plot(timings, loss, label='Nesterov')
+pl.plot(timings2, loss2, label='LBFGS')
+pl.yscale('log')
+pl.legend()
+pl.show()
+
 # out = rank_one_proj2(X[train], Y[train], 0., fir_length,
 #                      u0=canonical,
 #                      maxiter=100, ls_proj=ls_proj, rtol=1e-6)
