@@ -326,6 +326,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
     def obj(X_, Y_, Z_, a, b, c, u0):
         uv0 = khatri_rao(b, a)
         cost = .5 * linalg.norm(Y_ - X_.matvec(uv0) - Z_.matmat(c), 'fro') ** 2
+        print('LOSS: %s' % cost)
         reg = alpha * linalg.norm(a - u0, 'fro') ** 2
         return cost + reg
 
@@ -344,6 +345,25 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
         grad[size_u + size_v:] = Z_.rmatvec(tmp)
         return - grad.reshape((-1,), order='F')
 
+    import pylab as pl
+    fig = pl.figure()
+    pl.show()
+    def plot(w):
+        from nipy.modalities.fmri import hemodynamic_models as hdm
+        canonical = hdm.glover_hrf(1., 1., size_u)
+        print('PLOT')
+        W = w.reshape((-1, n_task), order='F')
+        u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
+        pl.clf()
+        tmp = u.copy()
+        sgn = np.sign(u.T.dot(canonical.ravel()))
+        tmp *= sgn
+        tmp = tmp / np.sqrt((tmp * tmp).sum(0))
+        pl.plot(tmp)
+        #                pl.ylim((-1, 1.2))
+        pl.draw()
+        pl.xlim((0, size_u))
+
     Y_split = [Y] #np.array_split(Y, n_split, axis=1)
     U = np.zeros((size_u, n_task))
     V = np.zeros((size_v, n_task))
@@ -354,7 +374,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
         u0_i = u0[:, counter:(counter + y_i.shape[1])]
         out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime, factr=rtol / np.finfo(np.float).eps,
                     args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter,
-                    disp=0, callback=callback)
+                    disp=0, callback=plot)
         if out[2]['warnflag'] != 0:
             print('Not converged')
         else:
@@ -599,6 +619,134 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-3,
 
     return u, v
 
+
+def power_method(X, Q, max_iter):
+    # returns SVD
+    for _ in range(max_iter):
+        tmp = (X * Q).sum(1)
+        zk = (X.transpose((1, 0, 2)) * tmp).sum(1)
+        Q = zk / np.sqrt((zk ** 2).sum(0))
+
+    U = (X * Q).sum(1)
+    return U, Q
+
+
+def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
+                   maxiter=50, verbose=False, ls_proj= None):
+    """
+    multi-target rank one model
+
+        ||y - X vec(u v.T)||_2 ^2
+
+    TODO: prior_u
+
+    Parameters
+    ----------
+    X : array-like, shape (n, p)
+    Y : array-like, shape (n, k)
+    size_u : integer
+        Must be divisor of p
+    u0 : array
+        Initial value for u
+    v0 : array
+        Initial value for v
+    rtol : float
+    maxiter : int
+        maximum number of iterations
+    verbose : bool
+        If True, prints the value of the objective
+        function at each iteration
+
+    Returns
+    -------
+    U : array, shape (size_u, k)
+    V : array, shape (p / size_u, k)
+    W : XXX
+
+    Reference
+    ---------
+    http://math.sjtu.edu.cn/faculty/zw2109/course/gprojection.pdf
+    """
+
+
+    Y = np.asarray(Y)
+    if Y.ndim == 1:
+        Y = Y.reshape((-1, 1))
+    n_task = Y.shape[1]
+    size_v = X.shape[1] / size_u
+
+    # .. check dimensions in input ..
+    if X.shape[0] != Y.shape[0]:
+        raise ValueError('Wrong shape for X, y')
+
+    import pylab as pl
+    plot = True
+
+    if u0 is None:
+        u0 = np.random.randn(size_u, 1)
+    if u0.ndim == 1:
+        u0 = u0.reshape((-1, 1))
+    if not u0.shape[1]:
+        raise NotImplemented
+    print('Precomputing initial step')
+    H = X.dot(np.kron(np.eye(size_v), u0))
+    v = linalg.lstsq(H, Y)[0]
+    print('Done')
+    u = np.repeat(u0, n_task).reshape((-1, n_task))
+    u = np.asfortranarray(u)
+    w0 = khatri_rao(v, u)
+
+
+    lipsch = splinalg.svds(X, 1)[1][0] ** 2
+    step_size = 1. / lipsch
+    obj_old = np.inf
+    plot = False
+
+    if plot:
+        fig = pl.figure()
+        pl.show()
+
+    xk1 = w0.copy()
+    for i in range(maxiter):
+        print('ITER: %s' % i)
+        print('GRADIENT')
+        grad = - X.T.dot(Y - X.dot(w0))
+        w0 -= step_size * grad
+        print('PROJECTION')
+        # projection step
+        if False:
+            for j in range(n_task):
+                w_tmp = w0[:, j].reshape((size_u, size_v), order='F')
+                u_svd, s, vt_svd = linalg.svd(w_tmp, full_matrices=False)
+                u[:, j], v[:, j] = u_svd[:, 0], s[0] * vt_svd[0]
+                w0[:, j] = np.outer(u_svd[:, 0], s[0] * vt_svd[0]).ravel('F')
+        else:
+            w_tmp = w0.reshape((size_u, size_v, n_task), order='F')
+            u, v = power_method(w_tmp, v, 1)
+            w0 = khatri_rao(v, u)
+        # Nesterov step
+        tmp = w0 + (i - 1.) / (i + 2.) * (w0 - xk1)
+        xk1 = w0
+        w0 = tmp
+        obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
+        print('LOSS: %s' % obj_new)
+        print('TOL: %s' % (np.abs(obj_old - obj_new) / obj_new))
+        if np.abs(obj_old - obj_new) / obj_new < rtol:
+            print('Converged')
+            break
+        obj_old = obj_new
+        if plot:
+            print('PLOT')
+            pl.clf()
+            tmp = u.copy()
+            sgn = np.sign(u.T.dot(u0.ravel()))
+            tmp *= sgn
+            tmp = tmp / np.sqrt((tmp * tmp).sum(0))
+            pl.plot(tmp)
+            #                pl.ylim((-1, 1.2))
+            pl.draw()
+            pl.xlim((0, size_u))
+    return u, v
 
 if __name__ == '__main__':
     np.random.seed(0)
