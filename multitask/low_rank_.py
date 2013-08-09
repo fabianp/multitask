@@ -319,14 +319,13 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
     w0 = np.zeros((size_u + size_v + Z_.shape[1], n_task))
     w0[:size_u] = u0
     w0[size_u:size_u + size_v] = v0
-    w0 = w0.reshape((-1,), order='F')
 
     # .. some auxiliary functions ..
     # .. used in conjugate gradient ..
     def obj(X_, Y_, Z_, a, b, c, u0):
         uv0 = khatri_rao(b, a)
         cost = .5 * linalg.norm(Y_ - X_.matvec(uv0) - Z_.matmat(c), 'fro') ** 2
-        print('LOSS: %s' % cost)
+        #print('LOSS: %s' % cost)
         reg = alpha * linalg.norm(a - u0, 'fro') ** 2
         return cost + reg
 
@@ -364,23 +363,38 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
         pl.draw()
         pl.xlim((0, size_u))
 
+    def cb(w):
+        callback(w)
+        plot(w)
+
     Y_split = [Y] #np.array_split(Y, n_split, axis=1)
     U = np.zeros((size_u, n_task))
     V = np.zeros((size_v, n_task))
     C = np.zeros((Z_.shape[1], n_task))
     counter = 0
+
     for y_i in Y_split: # TODO; remove
-        w0_i = w0.reshape((size_u + size_v + Z_.shape[1], n_task), order='F')[:, counter:(counter + y_i.shape[1])]
+        w0_i = w0.ravel('F')
         u0_i = u0[:, counter:(counter + y_i.shape[1])]
-        out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime, factr=rtol / np.finfo(np.float).eps,
-                    args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter,
-                    disp=0, callback=callback)
-        if out[2]['warnflag'] != 0:
-            print('Not converged')
+        callback(w0_i)
+        if False:
+            out = optimize.fmin_cg(f, w0_i, fprime,
+                args=(X, y_i, Z_,y_i.shape[1], u0_i),
+                maxiter=maxiter, callback=cb)
+            W = out[0].reshape((-1, y_i.shape[1]), order='F')
         else:
-            if verbose:
-                print('Converged')
-        W = out[0].reshape((-1, y_i.shape[1]), order='F')
+            out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime,
+                    factr=rtol / np.finfo(np.float).eps,
+                    args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter,
+                    disp=0, callback=cb)
+
+            if out[2]['warnflag'] != 0:
+               print('Not converged')
+            else:
+                if verbose:
+                    print('Converged')
+            W = out[0].reshape((-1, y_i.shape[1]), order='F')
+
         U[:, counter:counter + y_i.shape[1]] = W[:size_u]
         V[:, counter:counter + y_i.shape[1]] = W[size_u:size_u + size_v]
         C[:, counter:counter + y_i.shape[1]] = W[size_u + size_v:]
@@ -633,7 +647,8 @@ def power_method(X, Q, max_iter):
 
 
 def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
-                   maxiter=50, verbose=False, ls_proj= None, callback=None):
+                   maxiter=50, verbose=False, ls_proj= None,
+                   callback=None, v0=None):
     """
     multi-target rank one model
 
@@ -685,10 +700,15 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
 
     if u0 is None:
         u0 = np.random.randn(size_u, 1)
-    if u0.ndim == 1:
+    if u0.ndim == 1 or u0.shape[1] == 1:
         u = np.repeat(u0, n_task).reshape((-1, n_task))
+    else:
+        u = u0
     u = np.asfortranarray(u)
-    v = np.random.randn(size_v, n_task)
+    if v0 is None:
+        v = np.random.randn(size_v, n_task)
+    else:
+        v = v0
     w0 = khatri_rao(v, u)
     if ls_proj is not None:
         w0 = ls_proj(w0)
