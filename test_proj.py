@@ -20,11 +20,9 @@ ds = np.DataSource(DIR)
 print('X')
 X = scipy.io.mmread(ds.open('X_train.mtx')).tocsr()
 X_test = scipy.io.mmread(ds.open('X_test.mtx')).tocsr()
-print('nullspace')
-X_nullspace = scipy.io.mmread(ds.open('X_nullspace.mtx')).tocsr()
 #Y_train = scipy.io.mmread(ds.open('Y_train.mtx.gz'))
 Y = np.load('Y_10000.npy')
-n_task = 50
+n_task = 10
 Y_train = Y[:X.shape[0], :n_task]
 Y_test = Y[X.shape[0]:, :n_task]
 # print('K_inv')
@@ -84,6 +82,17 @@ out = rank_one_gradproj(X, Y_train, 0, fir_length, u0=canonical, v0=v0,
                     callback=None)
 u, v = out
 norm_res = 0.
+for i in range(n_task):
+    Iu = np.kron(np.eye(size_v, size_v), canonical)
+    # could be faster
+    Q = X_test.dot(Iu)
+    v_tmp = linalg.lstsq(Q, Y_test[:, i])[0]
+    w0 = np.outer(u[:, i], v_tmp).ravel('F')
+    res = linalg.norm(Y_test[:, i] - X_test.dot(w0))
+    print(res)
+    norm_res += res
+print('RESIDUALS CANONICAL: %s' % norm_res)
+
 for i in range(n_task):
     Iu = np.kron(np.eye(size_v, size_v), u[:, i][:, None])
     # could be faster
