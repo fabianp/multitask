@@ -344,9 +344,12 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
         grad[size_u + size_v:] = Z_.rmatvec(tmp)
         return - grad.reshape((-1,), order='F')
 
-    import pylab as pl
-    fig = pl.figure()
-    pl.show()
+    do_plot = False
+    if do_plot:
+        import pylab as pl
+        fig = pl.figure()
+        pl.show()
+
     def plot(w):
         from nipy.modalities.fmri import hemodynamic_models as hdm
         canonical = hdm.glover_hrf(1., 1., size_u)
@@ -363,10 +366,9 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
         pl.draw()
         pl.xlim((0, size_u))
 
-    do_plot = False
-
     def cb(w):
-        callback(w)
+        if callback is not None:
+            callback(w)
         if do_plot:
             plot(w)
 
@@ -379,25 +381,17 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
     for y_i in Y_split: # TODO; remove
         w0_i = w0.ravel('F')
         u0_i = u0[:, counter:(counter + y_i.shape[1])]
-        callback(w0_i)
-        if False:
-            out = optimize.fmin_cg(f, w0_i, fprime,
-                args=(X, y_i, Z_,y_i.shape[1], u0_i),
-                maxiter=maxiter, callback=cb)
-            W = out[0].reshape((-1, y_i.shape[1]), order='F')
+        out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime,
+                factr=rtol / np.finfo(np.float).eps,
+                args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter,
+                disp=0, callback=cb)
+
+        if out[2]['warnflag'] != 0:
+           print('Not converged')
         else:
-            out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime,
-                    factr=rtol / np.finfo(np.float).eps,
-                    args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter,
-                    disp=0, callback=cb)
-
-            if out[2]['warnflag'] != 0:
-               print('Not converged')
-            else:
-                if verbose:
-                    print('Converged')
-            W = out[0].reshape((-1, y_i.shape[1]), order='F')
-
+            if verbose:
+                print('Converged')
+        W = out[0].reshape((-1, y_i.shape[1]), order='F')
         U[:, counter:counter + y_i.shape[1]] = W[:size_u]
         V[:, counter:counter + y_i.shape[1]] = W[size_u:size_u + size_v]
         C[:, counter:counter + y_i.shape[1]] = W[size_u + size_v:]
@@ -730,7 +724,7 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
         print('ITER: %s' % n_iter)
         print('GRADIENT')
         Xw = X.dot(w0)
-        grad = - XY + X.T.dot(Xw)
+        grad = - XY + X.T.dot(Xw) #BLASify ?
         w0 -= step_size * grad
         print('PROJECTION')
         # projection step

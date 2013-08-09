@@ -19,11 +19,14 @@ print('Loading data')
 ds = np.DataSource(DIR)
 print('X')
 X = scipy.io.mmread(ds.open('X_train.mtx')).tocsr()
+X_test = scipy.io.mmread(ds.open('X_test.mtx')).tocsr()
 print('nullspace')
 X_nullspace = scipy.io.mmread(ds.open('X_nullspace.mtx')).tocsr()
 #Y_train = scipy.io.mmread(ds.open('Y_train.mtx.gz'))
 Y = np.load('Y_10000.npy')
-Y_train = Y[:X.shape[0], :5000]
+n_task = 50
+Y_train = Y[:X.shape[0], :n_task]
+Y_test = Y[X.shape[0]:, :n_task]
 # print('K_inv')
 # K_inv = scipy.io.mmread(ds.open('K_inv.mtx')).tocsr()
 #ridge_proj = lambda x: K_inv.dot(x)
@@ -40,10 +43,10 @@ Y_train = scipy.signal.detrend(
 print('Precomputing initialization point')
 size_u = fir_length
 size_v = X.shape[1] / size_u
-tmp = np.kron(np.eye(size_v, size_v), canonical) # could be faster
-Q = X.dot(tmp)
+Iu = np.kron(np.eye(size_v, size_v), canonical)  # could be faster
+Q = X.dot(Iu)
 v0 = linalg.lstsq(Q, Y_train)[0]
-del Q, tmp
+
 
 # ls_sol = [splinalg.lsqr(X, Y_train[:, i])[0] for i in range(Y_train.shape[1])]
 # ls_sol = np.array(ls_sol).T
@@ -78,9 +81,19 @@ start = datetime.now()
 out = rank_one_gradproj(X, Y_train, 0, fir_length, u0=canonical, v0=v0,
                         rtol=1e-6,
                     verbose=False, maxiter=150, ls_proj=None,
-                    callback=callback)
-
-
+                    callback=None)
+u, v = out
+norm_res = 0.
+for i in range(n_task):
+    Iu = np.kron(np.eye(size_v, size_v), u[:, i][:, None])
+    # could be faster
+    Q = X_test.dot(Iu)
+    v_tmp = linalg.lstsq(Q, Y_test[:, i])[0]
+    w0 = np.outer(u[:, i], v_tmp).ravel('F')
+    res = linalg.norm(Y_test[:, i] - X_test.dot(w0))
+    print(res)
+    norm_res += res
+print('RESIDUALS: %s' % norm_res)
 
 
 loss2 = []
@@ -96,8 +109,21 @@ def cb2(w):
     print('LOSS: %s' % loss2[-1])
     timings2.append((datetime.now() - start).total_seconds())
 start = datetime.now()
-out = rank_one(X, Y_train, 0, fir_length, u0=canonical, v0=v0, rtol=1e-6,
-               verbose=False, maxiter=200, callback=cb2)
+out = rank_one(X, Y_train, 0, fir_length, u0=canonical, v0=v0, rtol=1e-12,
+               verbose=False, maxiter=200, callback=None)
+
+u, v = out
+norm_res = 0.
+for i in range(n_task):
+    Iu = np.kron(np.eye(size_v, size_v), u[:, i][:, None])
+    # could be faster
+    Q = X_test.dot(Iu)
+    v0 = linalg.lstsq(Q, Y_test[:, i])[0]
+    w0 = np.outer(u[:, i], v0).ravel('F')
+    res = linalg.norm(Y_test[:, i] - X_test.dot(w0))
+    print(res)
+    norm_res += res
+print('RESIDUALS: %s' % norm_res)
 
 pl.figure()
 pl.plot(timings, loss, label='Projected Nesterov-CG', color='green')
