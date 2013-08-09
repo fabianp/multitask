@@ -268,7 +268,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
     Parameters
     ----------
     X : array-like, sparse matrix or LinearOperator, shape (n, p)
-    Y : array-lime, shape (n, k)
+    Y_train : array-lime, shape (n, k)
     size_u : integer
         Must be divisor of p
     u0 : array
@@ -363,11 +363,14 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
         pl.draw()
         pl.xlim((0, size_u))
 
+    do_plot = False
+
     def cb(w):
         callback(w)
-        plot(w)
+        if do_plot:
+            plot(w)
 
-    Y_split = [Y] #np.array_split(Y, n_split, axis=1)
+    Y_split = [Y] #np.array_split(Y_train, n_split, axis=1)
     U = np.zeros((size_u, n_task))
     V = np.zeros((size_v, n_task))
     C = np.zeros((Z_.shape[1], n_task))
@@ -419,7 +422,7 @@ def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6,
     Parameters
     ----------
     X : sparse matrix, shape (n, p)
-    Y : array-lime, shape (n, k)
+    Y_train : array-lime, shape (n, k)
     size_u : integer
         Must be divisor of p
     u0 : array
@@ -536,7 +539,7 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-3,
     Parameters
     ----------
     X : array-like, shape (n, p)
-    Y : array-like, shape (n, k)
+    Y_train : array-like, shape (n, k)
     size_u : integer
         Must be divisor of p
     u0 : array
@@ -586,7 +589,7 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-3,
     u = np.asfortranarray(u)
     w0 = khatri_rao(v, u)
 
-    #XY = X.T.dot(Y)
+    #XY = X.T.dot(Y_train)
     alpha = 1.
     if verbose:
         print('Done')
@@ -635,8 +638,8 @@ def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-3,
     return u, v
 
 
-def power_method(X, Q, max_iter):
-    # returns SVD
+def svd_power_method(X, Q, max_iter):
+    # returns dominant singular value
     for _ in range(max_iter):
         tmp = (X * Q).sum(1)
         zk = (X.transpose((1, 0, 2)) * tmp).sum(1)
@@ -659,7 +662,7 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
     Parameters
     ----------
     X : array-like, shape (n, p)
-    Y : array-like, shape (n, k)
+    Y_train : array-like, shape (n, k)
     size_u : integer
         Must be divisor of p
     u0 : array
@@ -696,7 +699,7 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
         raise ValueError('Wrong shape for X, y')
 
     import pylab as pl
-    plot = True
+    plot = False
 
     if u0 is None:
         u0 = np.random.randn(size_u, 1)
@@ -721,11 +724,13 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
         fig = pl.figure()
         pl.show()
 
-    xk1 = w0.copy()
-    for n_iter in range(maxiter):
+    xk1 = w0
+    XY = X.T.dot(Y)
+    for n_iter in range(1, maxiter):
         print('ITER: %s' % n_iter)
         print('GRADIENT')
-        grad = - X.T.dot(Y - X.dot(w0))
+        Xw = X.dot(w0)
+        grad = - XY + X.T.dot(Xw)
         w0 -= step_size * grad
         print('PROJECTION')
         # projection step
@@ -737,13 +742,13 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
                 w0[:, j] = np.outer(u_svd[:, 0], s[0] * vt_svd[0]).ravel('F')
         else:
             w_tmp = w0.reshape((size_u, size_v, n_task), order='F')
-            u, v = power_method(w_tmp, v, 1)
+            u, v = svd_power_method(w_tmp, v, 1)
             w0 = khatri_rao(v, u)
         # Nesterov step
-        tmp = w0 + (n_iter - 1.) / (n_iter + 2.) * (w0 - xk1)
-        xk1 = w0
+        tmp = w0 + ((n_iter - 1.) / (n_iter + 2.)) * (w0 - xk1)
+        xk1 = w0  # save it for next iteration
         w0 = tmp
-        obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
+        obj_new = .5 * linalg.norm(Y - Xw, 'fro') ** 2
         print('LOSS: %s' % obj_new)
         print('TOL: %s' % (np.abs(obj_old - obj_new) / obj_new))
         if np.abs(obj_old - obj_new) / obj_new < rtol:

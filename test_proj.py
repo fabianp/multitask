@@ -18,12 +18,12 @@ canonical = hdm.glover_hrf(1., 1., fir_length).reshape((-1, 1))
 print('Loading data')
 ds = np.DataSource(DIR)
 print('X')
-X = scipy.io.mmread(ds.open('X.mtx')).tocsr()
+X = scipy.io.mmread(ds.open('X_train.mtx')).tocsr()
 print('nullspace')
 X_nullspace = scipy.io.mmread(ds.open('X_nullspace.mtx')).tocsr()
-#Y = scipy.io.mmread(ds.open('Y.mtx.gz'))
+#Y_train = scipy.io.mmread(ds.open('Y_train.mtx.gz'))
 Y = np.load('Y_10000.npy')
-Y = Y[:, :500]
+Y_train = Y[:X.shape[0], :5000]
 # print('K_inv')
 # K_inv = scipy.io.mmread(ds.open('K_inv.mtx')).tocsr()
 #ridge_proj = lambda x: K_inv.dot(x)
@@ -31,36 +31,36 @@ Y = Y[:, :500]
 print('Done')
 
 
+
 print('Detrending')
-Y = scipy.signal.detrend(
-    Y, bp=np.linspace(0, X.shape[0], 7 * 5).astype(np.int),
+Y_train = scipy.signal.detrend(
+    Y_train, bp=np.linspace(0, X.shape[0], 7 * 5).astype(np.int),
     axis=0, type='linear')
 
 print('Precomputing initialization point')
 size_u = fir_length
 size_v = X.shape[1] / size_u
-K = X.T.dot(X)
-K = K + sparse.eye(*K.shape)
 tmp = np.kron(np.eye(size_v, size_v), canonical) # could be faster
 Q = X.dot(tmp)
-v0 = linalg.lstsq(Q, Y)[0]
+v0 = linalg.lstsq(Q, Y_train)[0]
+del Q, tmp
 
-# ls_sol = [splinalg.lsqr(X, Y[:, i])[0] for i in range(Y.shape[1])]
+# ls_sol = [splinalg.lsqr(X, Y_train[:, i])[0] for i in range(Y_train.shape[1])]
 # ls_sol = np.array(ls_sol).T
 # def ls_proj(x):
 #     proj = ls_sol + X_nullspace.dot(X_nullspace.T.dot(x))
 #     return proj
 
 # .. standardize ..
-#Y = Y.reshape((35, -1, Y.shape[1]))
-#Y = (Y - Y.mean(axis=1)[:, np.newaxis, :]) / Y.std(axis=1)[:, np.newaxis, :]
-#Y = Y.reshape((-1, Y.shape[2]))
+#Y_train = Y_train.reshape((35, -1, Y_train.shape[1]))
+#Y_train = (Y_train - Y_train.mean(axis=1)[:, np.newaxis, :]) / Y_train.std(axis=1)[:, np.newaxis, :]
+#Y_train = Y_train.reshape((-1, Y_train.shape[2]))
 print('Done')
 
 from multitask.low_rank_ import rank_one_proj2, rank_one, rank_one_gradproj, khatri_rao
 
 #from sklearn import cross_validation
-#cv = cross_validation.KFold(Y.shape[0], n_folds=20, shuffle=False)
+#cv = cross_validation.KFold(Y_train.shape[0], n_folds=20, shuffle=False)
 train = np.arange(X.shape[0] - 10)
 test = np.arange(X.shape[0] - 10, X.shape[0])
 #train, test = iter(cv).next()
@@ -71,30 +71,33 @@ loss = []
 timings = []
 
 def callback(w):
-    loss.append(.5 * (linalg.norm(Y - X.dot(w)) ** 2))
+    loss.append(.5 * (linalg.norm(Y_train - X.dot(w)) ** 2))
     timings.append((datetime.now() - start).total_seconds())
 
 start = datetime.now()
-out = rank_one_gradproj(X, Y, 0, fir_length, u0=canonical, v0=v0, rtol=1e-6,
-                    verbose=False, maxiter=100, ls_proj=None,
+out = rank_one_gradproj(X, Y_train, 0, fir_length, u0=canonical, v0=v0,
+                        rtol=1e-6,
+                    verbose=False, maxiter=150, ls_proj=None,
                     callback=callback)
+
+
 
 
 loss2 = []
 timings2 = []
 def cb2(w):
-    n_task = Y.shape[1]
+    n_task = Y_train.shape[1]
     size_u = fir_length
     size_v = X.shape[1] / fir_length
     W = w.reshape((-1, n_task), order='F')
     u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
     w = khatri_rao(v, u)
-    loss2.append(.5 * (linalg.norm(Y - X.dot(w)) ** 2))
+    loss2.append(.5 * (linalg.norm(Y_train - X.dot(w)) ** 2))
     print('LOSS: %s' % loss2[-1])
     timings2.append((datetime.now() - start).total_seconds())
 start = datetime.now()
-out = rank_one(X, Y, 0, fir_length, u0=canonical, v0=v0, rtol=1e-6,
-               verbose=False, maxiter=100, callback=cb2)
+out = rank_one(X, Y_train, 0, fir_length, u0=canonical, v0=v0, rtol=1e-6,
+               verbose=False, maxiter=200, callback=cb2)
 
 pl.figure()
 pl.plot(timings, loss, label='Projected Nesterov-CG', color='green')
@@ -106,7 +109,7 @@ pl.xlabel('Time in seconds')
 pl.legend()
 pl.show()
 
-# out = rank_one_proj2(X[train], Y[train], 0., fir_length,
+# out = rank_one_proj2(X[train], Y_train[train], 0., fir_length,
 #                      u0=canonical,
 #                      maxiter=100, ls_proj=ls_proj, rtol=1e-6)
 
@@ -118,9 +121,9 @@ u_train, v_train = out
 # for i, u_t in enumerate(u_train.T):
 #     u_t = u_t.reshape((-1, 1))
 #     H = X[test].dot(np.kron(np.eye(size_v), u_t))
-#     v_test = linalg.lstsq(H, Y[test, i])[0]
+#     v_test = linalg.lstsq(H, Y_train[test, i])[0]
 #     w_test = np.outer(u_t, v_test).ravel('F')
-#     tmp = linalg.norm(Y[test, i] - X[test].dot(w_test))
+#     tmp = linalg.norm(Y_train[test, i] - X[test].dot(w_test))
 #     print(tmp)
 #     total += tmp
 # print(total)
@@ -137,7 +140,7 @@ u_train, v_train = out
 
 
 # from multitask.low_rank_ import rank_one
-# out = rank_one(X, Y, 0, fir_length, u0=canonical, rtol=1e-6, verbose=False, maxiter=1000)
+# out = rank_one(X, Y_train, 0, fir_length, u0=canonical, rtol=1e-6, verbose=False, maxiter=1000)
 # u, v = out
 #
 # fig = pl.figure()
