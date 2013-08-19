@@ -21,10 +21,9 @@ print('X')
 X = scipy.io.mmread(ds.open('X_train.mtx')).tocsr()
 X_test = scipy.io.mmread(ds.open('X_test.mtx')).tocsr()
 #Y_train = scipy.io.mmread(ds.open('Y_train.mtx.gz'))
-Y = np.load('Y_10000.npy')
-n_task = 10
-Y_train = Y[:X.shape[0], :n_task]
-Y_test = Y[X.shape[0]:, :n_task]
+Y = np.load('Y_5000.npy')
+n_task = 5
+
 # print('K_inv')
 # K_inv = scipy.io.mmread(ds.open('K_inv.mtx')).tocsr()
 #ridge_proj = lambda x: K_inv.dot(x)
@@ -34,9 +33,11 @@ print('Done')
 
 
 print('Detrending')
-Y_train = scipy.signal.detrend(
-    Y_train, bp=np.linspace(0, X.shape[0], 7 * 5).astype(np.int),
+Y = scipy.signal.detrend(
+    Y[:, :n_task], bp=np.linspace(0, X.shape[0], 7 * 5).astype(np.int),
     axis=0, type='linear')
+Y_train = Y[:X.shape[0]]
+Y_test = Y[X.shape[0]:]
 
 print('Precomputing initialization point')
 size_u = fir_length
@@ -77,29 +78,28 @@ def callback(w):
 
 start = datetime.now()
 out = rank_one_gradproj(X, Y_train, 0, fir_length, u0=canonical, v0=v0,
-                        rtol=1e-6,
-                    verbose=False, maxiter=150, ls_proj=None,
-                    callback=None)
+                        rtol=1e-12,
+                    verbose=False, maxiter=350, ls_proj=None,
+                    callback=callback)
 u, v = out
 norm_res = 0.
+Iu = np.kron(np.eye(size_v, size_v), canonical)
+# could be faster
+Q = X_test.dot(Iu)
 for i in range(n_task):
-    Iu = np.kron(np.eye(size_v, size_v), canonical)
-    # could be faster
-    Q = X_test.dot(Iu)
     v_tmp = linalg.lstsq(Q, Y_test[:, i])[0]
-    w0 = np.outer(u[:, i], v_tmp).ravel('F')
-    res = linalg.norm(Y_test[:, i] - X_test.dot(w0))
+    res = linalg.norm(Y_test[:, i] - Q.dot(v_tmp))
     print(res)
     norm_res += res
 print('RESIDUALS CANONICAL: %s' % norm_res)
 
+norm_res  = 0.
 for i in range(n_task):
     Iu = np.kron(np.eye(size_v, size_v), u[:, i][:, None])
     # could be faster
     Q = X_test.dot(Iu)
-    v_tmp = linalg.lstsq(Q, Y_test[:, i])[0]
-    w0 = np.outer(u[:, i], v_tmp).ravel('F')
-    res = linalg.norm(Y_test[:, i] - X_test.dot(w0))
+    v0 = linalg.lstsq(Q, Y_test[:, i])[0]
+    res = linalg.norm(Y_test[:, i] - Q.dot(v0))
     print(res)
     norm_res += res
 print('RESIDUALS: %s' % norm_res)
@@ -119,7 +119,7 @@ def cb2(w):
     timings2.append((datetime.now() - start).total_seconds())
 start = datetime.now()
 out = rank_one(X, Y_train, 0, fir_length, u0=canonical, v0=v0, rtol=1e-12,
-               verbose=False, maxiter=200, callback=None)
+               verbose=False, maxiter=500, callback=cb2)
 
 u, v = out
 norm_res = 0.
@@ -128,8 +128,7 @@ for i in range(n_task):
     # could be faster
     Q = X_test.dot(Iu)
     v0 = linalg.lstsq(Q, Y_test[:, i])[0]
-    w0 = np.outer(u[:, i], v0).ravel('F')
-    res = linalg.norm(Y_test[:, i] - X_test.dot(w0))
+    res = linalg.norm(Y_test[:, i] - Q.dot(v0))
     print(res)
     norm_res += res
 print('RESIDUALS: %s' % norm_res)
