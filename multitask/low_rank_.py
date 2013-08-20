@@ -529,7 +529,7 @@ def rank_one_gradproj(X, Y, size_u, u0=None, rtol=1e-3,
             #                pl.ylim((-1, 1.2))
             pl.draw()
             pl.xlim((0, size_u))
-            pl.savefig('proj_%03d.png' % n_iter)
+            #pl.savefig('proj_%03d.png' % n_iter)
         if callback is not None:
             callback(w0)
     return u, v
