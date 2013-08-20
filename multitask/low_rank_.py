@@ -403,235 +403,6 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
         return U, V, C
 
 
-
-def rank_one_proj(X, Y, alpha, size_u, u0=None, v=None, rtol=1e-6,
-                  maxiter=1000, verbose=False):
-    """
-    multi-target rank one model
-
-        ||y - X vec(u v.T)||_2 ^2
-
-    TODO: prior_u
-
-    Parameters
-    ----------
-    X : sparse matrix, shape (n, p)
-    Y_train : array-lime, shape (n, k)
-    size_u : integer
-        Must be divisor of p
-    u0 : array
-        Initial value for u
-    v0 : array
-        Initial value for v
-    rtol : float
-    maxiter : int
-        maximum number of iterations
-    verbose : bool
-        If True, prints the value of the objective
-        function at each iteration
-
-    Returns
-    -------
-    U : array, shape (size_u, k)
-    V : array, shape (p / size_u, k)
-    W : XXX
-    """
-
-    #X = splinalg.aslinearoperator(X)
-    Y = np.asarray(Y)
-    if Y.ndim == 1:
-        Y = Y.reshape((-1, 1))
-    n_task = Y.shape[1]
-    size_v = X.shape[1] / size_u
-
-    # .. check dimensions in input ..
-    if X.shape[0] != Y.shape[0]:
-        raise ValueError('Wrong shape for X, y')
-
-    u = np.ones(size_u * n_task)
-    if u0 is None:
-        u0 = np.ones((size_u * size_v, n_task))
-    if u.shape[0] == size_u:
-        u = np.repeat(u, n_task).reshape((-1, n_task), order='F')
-    if v is None:
-        v = np.ones(X.shape[1] / size_u * n_task)  # np.random.randn(shape_B[1])
-
-    u = u.reshape((-1, n_task))
-    v = v.reshape((-1, n_task))
-
-    #cutoff = 1e-3
-    if verbose:
-        print('Precomputing the singular value decomposition ...')
-    if verbose:
-        print('Done')
-    if verbose:
-        print('Precomputing least squares solution ...')
-    XY = np.dot(X.T, Y)
-    if verbose:
-        print('Done')
-    U, sigma, Vt = linalg.svd(X, full_matrices=True)
-    sigma1 = np.zeros(X.shape[1])
-    sigma1[:sigma.size] = sigma
-    sigma = sigma1
-    obj_old = np.inf
-    counter = 0
-
-    if verbose:
-        print('Starting projection iteration ...')
-
-    sol = None
-    U, svals, Vt = linalg.svd(X, full_matrices=True)
-    s = np.zeros((X.shape[1], 1))
-    s[:svals.size] = svals[:, None]
-    while counter < maxiter:
-        counter += 1
-        d = np.kron(1 / v, np.ones((size_u, 1)))
-        sol0 = Vt.dot(XY + alpha * d * u0)
-        sol0 *= (1. / (s * s + alpha * d * d))
-        sol = Vt.T.dot(sol0)
-        u = (d * sol).reshape((u.shape[0], v.shape[0], n_task), order='F').sum(1) / size_v
-
-        h = np.kron(np.ones((size_v, 1)), 1 / u)
-        # import ipdb; ipdb.set_trace()
-        sol0 = Vt.dot(XY + alpha * h * u0)
-        sol0 *= (1. / (s * s + alpha * h * h))
-        sol1 = Vt.T.dot(sol0)
-        v = (h * sol).reshape((u.shape[0], v.shape[0], n_task), order='F').sum(0) / size_u
-
-        H = np.diag(h[:, 0])
-        sol = linalg.solve(X.T.dot(X) + alpha * H.T.dot(H), XY + alpha * H.T.dot(u0))
-        #import ipdb; ipdb.set_trace()
-        v = H.dot(sol).reshape((u.shape[0], v.shape[0], n_task), order='F').sum(0) / size_u
-
-        u = u.reshape((-1, 1))
-        v = v.reshape((-1, 1))
-        obj_new = linalg.norm(Y - X.dot(sol), 'fro') ** 2 + alpha * (linalg.norm(u - u0[:size_u]) ** 2)
-
-        if verbose:
-            print('OBJ OLD %s' % obj_old)
-            print('OBJ     %s' % obj_new)
-            print
-
-        #print(np.abs(obj_new - obj_old) / obj_new)
-        if np.abs(obj_new - obj_old) < rtol * obj_new * 0.1:
-            break
-
-        obj_old = obj_new
-
-    return u, v
-
-#@profile
-def rank_one_proj2(X, Y, alpha, size_u, u0=None, rtol=1e-3,
-                   maxiter=50, verbose=False, ls_proj= None):
-    """
-    multi-target rank one model
-
-        ||y - X vec(u v.T)||_2 ^2
-
-    TODO: prior_u
-
-    Parameters
-    ----------
-    X : array-like, shape (n, p)
-    Y_train : array-like, shape (n, k)
-    size_u : integer
-        Must be divisor of p
-    u0 : array
-        Initial value for u
-    v0 : array
-        Initial value for v
-    rtol : float
-    maxiter : int
-        maximum number of iterations
-    verbose : bool
-        If True, prints the value of the objective
-        function at each iteration
-
-    Returns
-    -------
-    U : array, shape (size_u, k)
-    V : array, shape (p / size_u, k)
-    W : XXX
-    """
-
-
-    Y = np.asarray(Y)
-    if Y.ndim == 1:
-        Y = Y.reshape((-1, 1))
-    n_task = Y.shape[1]
-    size_v = X.shape[1] / size_u
-
-    # .. check dimensions in input ..
-    if X.shape[0] != Y.shape[0]:
-        raise ValueError('Wrong shape for X, y')
-
-    import pylab as pl
-    plot = True
-
-
-    if u0 is None:
-        u0 = np.random.randn(size_u, 1)
-    if u0.ndim == 1:
-        u0 = u0.reshape((-1, 1))
-    if not u0.shape[1]:
-        raise NotImplemented
-    print('Precomputing initial step')
-    H = X.dot(np.kron(np.eye(size_v), u0))
-    v = linalg.lstsq(H, Y)[0]
-    print('Done')
-    u = np.repeat(u0, n_task).reshape((-1, n_task))
-    u = np.asfortranarray(u)
-    w0 = khatri_rao(v, u)
-
-    #XY = X.T.dot(Y_train)
-    alpha = 1.
-    if verbose:
-        print('Done')
-
-    obj_old = np.inf
-
-    if plot:
-        fig = pl.figure()
-        pl.show()
-    try:
-        for i in range(maxiter):
-            print('Iter %s' % i)
-            print('LS STEP')
-            w0 = ls_proj(w0)
-            if i % 5 == 0:
-                alpha *= 2.
-            print('SVD STEP')
-            for j in range(n_task):
-                w_tmp = w0[:, j].reshape((size_u, size_v), order='F')
-                u_svd, s, vt_svd = linalg.svd(w_tmp, full_matrices=False)
-                #import ipdb; ipdb.set_trace()
-                u[:, j], v[:, j] = u_svd[:, 0], s[0] * vt_svd[0]
-                w0[:, j] = np.outer(u_svd[:, 0], s[0] * vt_svd[0]).ravel('F')
-            obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
-            print('LOSS: %s' % obj_new)
-            print('TOL: %s' % (np.abs(obj_old - obj_new) / obj_new))
-            if np.abs(obj_old - obj_new) / obj_new < rtol:
-                print('Converged')
-                break
-            obj_old = obj_new
-            if plot:
-                print('PLOT')
-                pl.clf()
-                tmp = u.copy()
-                sgn = np.sign(u.T.dot(u0.ravel()))
-                tmp *= sgn
-                #tmp = tmp / np.sqrt((tmp * tmp).sum(0))
-                pl.plot(tmp)
-#                pl.ylim((-1, 1.2))
-                pl.draw()
-                pl.xlim((0, size_u))
-    except KeyboardInterrupt:
-        pass
-        # pl.savefig('%03d.png' % i)
-
-    return u, v
-
-
 def svd_power_method(X, Q, max_iter):
     # returns dominant singular value
     for _ in range(max_iter):
@@ -643,8 +414,8 @@ def svd_power_method(X, Q, max_iter):
     return U, Q
 
 
-def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
-                   maxiter=50, verbose=False, ls_proj= None,
+def rank_one_gradproj(X, Y, size_u, u0=None, rtol=1e-3,
+                   maxiter=50, verbose=False,
                    callback=None, v0=None, plot=False):
     """
     multi-target rank one model
@@ -707,8 +478,6 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
     else:
         v = v0
     w0 = khatri_rao(v, u)
-    if ls_proj is not None:
-        w0 = ls_proj(w0)
 
     lipsch = splinalg.svds(X, 1)[1][0] ** 2
     step_size = 1. / lipsch # Landweber iteration
@@ -754,7 +523,7 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
             pl.clf()
             pl.ylim((-1., 1.))
             tmp = (u - u.mean(1)[:, None])
-            sgn = np.sign(tmp.T.dot(u0.ravel() - u0.mean()))
+            sgn = np.sign(tmp.T.dot(u0.ravel('F')[:size_u] - u0.mean()))
             tmp *= sgn
 
             norm = tmp.max(0) - tmp.min(0) 

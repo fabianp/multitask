@@ -59,7 +59,7 @@ v0 = linalg.lstsq(Q, Y_train)[0]
 #Y_train = Y_train.reshape((-1, Y_train.shape[2]))
 print('Done')
 
-from multitask.low_rank_ import rank_one_proj2, rank_one, rank_one_gradproj, khatri_rao
+from multitask import rank_one, rank_one_gradproj, khatri_rao
 
 print('Calling rank_one_proj2')
 
@@ -71,11 +71,13 @@ def callback(w):
     loss.append(.5 * (linalg.norm(Y_train - X.dot(w)) ** 2))
     timings.append((datetime.now() - start).total_seconds())
 
+
+u0 = np.repeat(canonical, n_task).reshape((-1, n_task))
 start = datetime.now()
-out = rank_one_gradproj(X, Y_train, 0, fir_length, u0=canonical, v0=v0,
-                        rtol=1e-6,
-                    verbose=False, maxiter=350, ls_proj=None,
-                    callback=None)
+out = rank_one_gradproj(
+    X, Y_train, fir_length, u0=u0, v0=v0,
+    rtol=1e-6, verbose=False, maxiter=350,
+    callback=None, plot=True)
 print datetime.now() - start
 u, v = out
 norm_res = 0.
