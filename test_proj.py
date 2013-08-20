@@ -21,8 +21,8 @@ print('X')
 X = scipy.io.mmread(ds.open('X_train.mtx')).tocsr()
 X_test = scipy.io.mmread(ds.open('X_test.mtx')).tocsr()
 #Y_train = scipy.io.mmread(ds.open('Y_train.mtx.gz'))
-Y = np.load('Y_5000.npy')
-n_task = 5
+Y = np.load('Y_10000.npy')
+n_task = 100
 
 # print('K_inv')
 # K_inv = scipy.io.mmread(ds.open('K_inv.mtx')).tocsr()
@@ -61,11 +61,6 @@ print('Done')
 
 from multitask.low_rank_ import rank_one_proj2, rank_one, rank_one_gradproj, khatri_rao
 
-#from sklearn import cross_validation
-#cv = cross_validation.KFold(Y_train.shape[0], n_folds=20, shuffle=False)
-train = np.arange(X.shape[0] - 10)
-test = np.arange(X.shape[0] - 10, X.shape[0])
-#train, test = iter(cv).next()
 print('Calling rank_one_proj2')
 
 
@@ -78,9 +73,10 @@ def callback(w):
 
 start = datetime.now()
 out = rank_one_gradproj(X, Y_train, 0, fir_length, u0=canonical, v0=v0,
-                        rtol=1e-12,
+                        rtol=1e-6,
                     verbose=False, maxiter=350, ls_proj=None,
-                    callback=callback)
+                    callback=None)
+print datetime.now() - start
 u, v = out
 norm_res = 0.
 Iu = np.kron(np.eye(size_v, size_v), canonical)

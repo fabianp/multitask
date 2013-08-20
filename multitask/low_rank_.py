@@ -645,7 +645,7 @@ def svd_power_method(X, Q, max_iter):
 
 def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
                    maxiter=50, verbose=False, ls_proj= None,
-                   callback=None, v0=None):
+                   callback=None, v0=None, plot=False):
     """
     multi-target rank one model
 
@@ -692,8 +692,8 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
     if X.shape[0] != Y.shape[0]:
         raise ValueError('Wrong shape for X, y')
 
-    import pylab as pl
-    plot = False
+    if plot:
+        import pylab as pl
 
     if u0 is None:
         u0 = np.random.randn(size_u, 1)
@@ -711,7 +711,7 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
         w0 = ls_proj(w0)
 
     lipsch = splinalg.svds(X, 1)[1][0] ** 2
-    step_size = 1. / lipsch
+    step_size = 1. / lipsch # Landweber iteration
     obj_old = np.inf
 
     if plot:
@@ -752,14 +752,18 @@ def rank_one_gradproj(X, Y, alpha, size_u, u0=None, rtol=1e-3,
         if plot:
             print('PLOT')
             pl.clf()
-            tmp = u.copy()
-            sgn = np.sign(u.T.dot(u0.ravel()))
+            pl.ylim((-1., 1.))
+            tmp = (u - u.mean(1)[:, None])
+            sgn = np.sign(tmp.T.dot(u0.ravel() - u0.mean()))
             tmp *= sgn
-            tmp = tmp / np.sqrt((tmp * tmp).sum(0))
+
+            norm = tmp.max(0) - tmp.min(0) 
+            tmp = tmp / norm
             pl.plot(tmp)
             #                pl.ylim((-1, 1.2))
             pl.draw()
             pl.xlim((0, size_u))
+            pl.savefig('proj_%03d.png' % n_iter)
         if callback is not None:
             callback(w0)
     return u, v
