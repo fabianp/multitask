@@ -258,7 +258,7 @@ def rmatmat2(X, a, b, n_task):
     return tmp
 
 
-def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
+def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
              rtol=1e-6, verbose=False, maxiter=1000, callback=None):
     """
     multi-target rank one model
@@ -287,7 +287,7 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
     W : array,
         only returned if Z is specified
     """
-
+    alpha = 0.
     X = splinalg.aslinearoperator(X)
     if Z is None:
         # create identity operator
@@ -367,6 +367,10 @@ def rank_one(X, Y, alpha, size_u, u0=None, v0=None, Z=None,
         pl.xlim((0, size_u))
 
     def cb(w):
+        W = w.reshape((-1, n_task), order='F')
+        u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
+        new_obj = obj(X_, Y_, Z_, u, v, c, u0)
+        print('LOSS: %s' % new_obj)
         if callback is not None:
             callback(w)
         if do_plot:
@@ -497,16 +501,9 @@ def rank_one_gradproj(X, Y, size_u, u0=None, rtol=1e-3,
         w0 -= step_size * grad
         print('PROJECTION')
         # projection step
-        if False:
-            for j in range(n_task):
-                w_tmp = w0[:, j].reshape((size_u, size_v), order='F')
-                u_svd, s, vt_svd = linalg.svd(w_tmp, full_matrices=False)
-                u[:, j], v[:, j] = u_svd[:, 0], s[0] * vt_svd[0]
-                w0[:, j] = np.outer(u_svd[:, 0], s[0] * vt_svd[0]).ravel('F')
-        else:
-            w_tmp = w0.reshape((size_u, size_v, n_task), order='F')
-            u, v = svd_power_method(w_tmp, v, 1)
-            w0 = khatri_rao(v, u)
+        w_tmp = w0.reshape((size_u, size_v, n_task), order='F')
+        u, v = svd_power_method(w_tmp, v, 1)
+        w0 = khatri_rao(v, u)
         # Nesterov step
         tmp = w0 + ((n_iter - 1.) / (n_iter + 2.)) * (w0 - xk1)
         xk1 = w0  # save it for next iteration
