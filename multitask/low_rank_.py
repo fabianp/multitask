@@ -344,13 +344,13 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         grad[size_u + size_v:] = Z_.rmatvec(tmp)
         return - grad.reshape((-1,), order='F')
 
-    do_plot = False
+    do_plot = True
     if do_plot:
         import pylab as pl
         fig = pl.figure()
         pl.show()
 
-    def plot(w):
+    def plot(w, energy):
         from nipy.modalities.fmri import hemodynamic_models as hdm
         canonical = hdm.glover_hrf(1., 1., size_u)
         print('PLOT')
@@ -362,6 +362,7 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         tmp *= sgn
         tmp = tmp / np.sqrt((tmp * tmp).sum(0))
         pl.plot(tmp)
+        pl.title('LOSS: %s' % energy)
         #                pl.ylim((-1, 1.2))
         pl.draw()
         pl.xlim((0, size_u))
@@ -374,7 +375,7 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         if callback is not None:
             callback(w)
         if do_plot:
-            plot(w)
+            plot(w, new_obj)
 
     Y_split = [Y] #np.array_split(Y_train, n_split, axis=1)
     U = np.zeros((size_u, n_task))
@@ -382,9 +383,11 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
     C = np.zeros((Z_.shape[1], n_task))
     counter = 0
 
+
     for y_i in Y_split: # TODO; remove
         w0_i = w0.ravel('F')
         u0_i = u0[:, counter:(counter + y_i.shape[1])]
+        cb(w0_i)
         out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime,
                 factr=rtol / np.finfo(np.float).eps,
                 args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter,
@@ -485,7 +488,9 @@ def rank_one_gradproj(X, Y, size_u, u0=None, rtol=1e-3,
 
     lipsch = splinalg.svds(X, 1)[1][0] ** 2
     step_size = 1. / lipsch # Landweber iteration
+    print(step_size)
     obj_old = np.inf
+
 
     if plot:
         fig = pl.figure()
@@ -505,9 +510,11 @@ def rank_one_gradproj(X, Y, size_u, u0=None, rtol=1e-3,
         u, v = svd_power_method(w_tmp, v, 1)
         w0 = khatri_rao(v, u)
         # Nesterov step
-        tmp = w0 + ((n_iter - 1.) / (n_iter + 2.)) * (w0 - xk1)
-        xk1 = w0  # save it for next iteration
-        w0 = tmp
+        if False:
+            tmp = w0 + ((n_iter - 1.) / (n_iter + 2.)) * (w0 - xk1)
+            xk1 = w0  # save it for next iteration
+            w0 = tmp
+            print('percentage of converged features: %s' % np.mean(np.abs(w0 - xk1) < rtol))
         obj_new = .5 * linalg.norm(Y - Xw, 'fro') ** 2
         print('LOSS: %s' % obj_new)
         print('TOL: %s' % (np.abs(obj_old - obj_new) / obj_new))
