@@ -369,7 +369,7 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
     def cb(w):
         W = w.reshape((-1, n_task), order='F')
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
-        new_obj = obj(X_, Y_, Z_, u, v, c, u0)
+        new_obj = obj(X, Y, Z_, u, v, c, u0)
         print('LOSS: %s' % new_obj)
         if callback is not None:
             callback(w)
