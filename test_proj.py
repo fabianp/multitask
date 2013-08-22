@@ -59,7 +59,7 @@ v0 = linalg.lstsq(Q, Y_train)[0]
 #Y_train = Y_train.reshape((-1, Y_train.shape[2]))
 print('Done')
 
-from multitask import rank_one, rank_one_gradproj, khatri_rao
+import multitask as mt
 
 print('Calling rank_one_proj2')
 
@@ -71,11 +71,10 @@ def callback(w):
     loss.append(.5 * (linalg.norm(Y_train - X.dot(w)) ** 2))
     timings.append((datetime.now() - start).total_seconds())
 
-
 u0 = np.repeat(canonical, n_task).reshape((-1, n_task))
 start = datetime.now()
-out = rank_one_gradproj(
-    X, Y_train, fir_length, u0=u0, v0=v0,
+out = mt.rank_one_frankwolfe(
+    X, Y_train, fir_length, u0=u0, v0=None,
     rtol=1e-6, verbose=False, maxiter=350,
     callback=None, plot=True)
 print datetime.now() - start
@@ -111,12 +110,12 @@ def cb2(w):
     size_v = X.shape[1] / fir_length
     W = w.reshape((-1, n_task), order='F')
     u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
-    w = khatri_rao(v, u)
+    w = mt.khatri_rao(v, u)
     loss2.append(.5 * (linalg.norm(Y_train - X.dot(w)) ** 2))
     print('LOSS: %s' % loss2[-1])
     timings2.append((datetime.now() - start).total_seconds())
 start = datetime.now()
-out = rank_one(X, Y_train, 0, fir_length, u0=canonical, v0=v0, rtol=1e-12,
+out = mt.rank_one(X, Y_train, 0, fir_length, u0=canonical, v0=v0, rtol=1e-12,
                verbose=False, maxiter=500, callback=cb2)
 
 u, v = out

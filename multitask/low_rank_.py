@@ -420,6 +420,15 @@ def svd_power_method(X, Q, max_iter):
     U = (X * Q).sum(1)
     return U, Q
 
+def svd_smallest_power_method(X, lambdamax, Q, max_iter):
+    # returns dominant singular value
+    for _ in range(max_iter):
+        tmp = (X * Q).sum(1)
+        zk = (X.transpose((1, 0, 2)) * tmp).sum(1)
+        Q = zk / np.sqrt((zk ** 2).sum(0))
+
+    U = (X * Q).sum(1)
+    return U, Q
 
 def rank_one_gradproj(X, Y, size_u, u0=None, rtol=1e-3,
                    maxiter=50, verbose=False,
@@ -507,7 +516,7 @@ def rank_one_gradproj(X, Y, size_u, u0=None, rtol=1e-3,
         print('PROJECTION')
         # projection step
         w_tmp = w0.reshape((size_u, size_v, n_task), order='F')
-        u, v = svd_power_method(w_tmp, v, 1)
+        u, v = svd_power_method(w_tmp, v, 10)
         w0 = khatri_rao(v, u)
         # Nesterov step
         if False:
@@ -540,6 +549,148 @@ def rank_one_gradproj(X, Y, size_u, u0=None, rtol=1e-3,
         if callback is not None:
             callback(w0)
     return u, v
+
+
+def rank_one_frankwolfe(X, Y, size_u, u0=None, rtol=1e-3,
+                   maxiter=50, verbose=False,
+                   callback=None, v0=None, plot=False):
+    """
+    multi-target rank one model
+
+        ||y - X vec(u v.T)||_2 ^2
+
+    TODO: prior_u
+
+    Parameters
+    ----------
+    X : array-like, shape (n, p)
+    Y_train : array-like, shape (n, k)
+    size_u : integer
+        Must be divisor of p
+    u0 : array
+        Initial value for u
+    v0 : array
+        Initial value for v
+    rtol : float
+    maxiter : int
+        maximum number of iterations
+    verbose : bool
+        If True, prints the value of the objective
+        function at each iteration
+
+    Returns
+    -------
+    U : array, shape (size_u, k)
+    V : array, shape (p / size_u, k)
+    W : XXX
+
+    Reference
+    ---------
+    """
+
+
+    Y = np.asarray(Y)
+    if Y.ndim == 1:
+        Y = Y.reshape((-1, 1))
+    n_task = Y.shape[1]
+    size_v = X.shape[1] / size_u
+
+    # .. check dimensions in input ..
+    if X.shape[0] != Y.shape[0]:
+        raise ValueError('Wrong shape for X, y')
+
+    if plot:
+        import pylab as pl
+
+    if u0 is None:
+        u0 = np.random.randn(size_u, 1)
+    if u0.ndim == 1 or u0.shape[1] == 1:
+        u = np.repeat(u0, n_task).reshape((-1, n_task))
+    else:
+        u = u0
+    u = np.asfortranarray(u)
+    if v0 is None:
+        v = np.random.randn(size_v, n_task)
+    else:
+        v = v0
+    w0 = khatri_rao(v, u)
+
+    lipsch = splinalg.svds(X, 1)[1][0] ** 2
+    step_size = 1. / lipsch # Landweber iteration
+    obj_old = np.inf
+
+    if plot:
+        fig = pl.figure()
+        pl.show()
+
+    xk1 = w0
+    XY = X.T.dot(Y)
+    u2 = np.empty_like(u)
+    v2 = np.empty_like(v)
+
+    for n_iter in range(1, maxiter):
+        print('ITER: %s' % n_iter)
+        print('PROJECTION')
+        # projection step
+        Xw = X.dot(w0)
+        grad = - XY + X.T.dot(Xw) #BLASify ?
+        grad_tmp = grad.reshape((size_u, size_v, n_task), order='F')
+        #u2, v2 = svd_power_method(grad_tmp, v2, 20)
+        for j in range(n_task):
+                u_svd, s, vt_svd = linalg.svd(grad_tmp[:, :, j], full_matrices=False)
+                u2[:, j], v2[:, j] = u_svd[:, 0], s[0] * vt_svd[0]
+        s = khatri_rao(v2, u2) - w0
+        for j in range(n_task):
+            yj = Y[:, j]
+            sj = s[:, j]
+            tmp = X.T.dot(X).dot(sj)
+            alpha = (sj.dot(X.T.dot(yj)) - tmp.dot(w0[:, j])) / tmp.dot(sj)            
+            def f(w):
+                return .5 * linalg.norm(yj - X.dot(w)) ** 2
+            # def fprime(w):
+            #     return - X.T.dot(yj) + X.T.dot(X.dot(w))
+            # tmp = 
+            # alpha = optimize.line_search(f, fprime, w0[:, j], s[:, j])[0]
+            w_old = w0[:, j].copy()
+            w0[:, j] += alpha * s[:, j]
+            #assert f(w_old) >= f(w0[:, j])
+            #print((alpha, f(w_old), f(w0[:, j])))
+            #import ipdb; ipdb.set_trace()
+
+        obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
+        print('LOSS: %s' % obj_new)
+        print('TOL: %s' % (np.abs(obj_old - obj_new) / obj_new))
+        if np.abs(obj_old - obj_new) / obj_new < rtol:
+            print('Converged')
+            #break
+        obj_old = obj_new
+        if plot:
+            w_tmp = w0.reshape((size_u, size_v, n_task), order='F')
+            for j in range(n_task):
+                u_svd, s, vt_svd = linalg.svd(w_tmp[:, :, j], full_matrices=False)
+                u[:, j], v[:, j] = u_svd[:, 0], s[0] * vt_svd[0]
+            print('PLOT')
+            pl.clf()
+            pl.ylim((-1., 1.))
+            tmp = (u - u.mean(1)[:, None])
+            sgn = np.sign(tmp.T.dot(u0.ravel('F')[:size_u] - u0.mean()))
+            tmp *= sgn
+
+            norm = tmp.max(0) - tmp.min(0) 
+            tmp = tmp / norm
+            pl.plot(tmp)
+            #                pl.ylim((-1, 1.2))
+            pl.draw()
+            pl.xlim((0, size_u))
+            #pl.savefig('proj_%03d.png' % n_iter)
+        if callback is not None:
+            callback(w0)
+    for j in range(n_task):
+        #import ipdb; ipdb.set_trace()
+        u_svd, s, vt_svd = linalg.svd(w_tmp[:, :, j], full_matrices=False)
+        u[:, j], v[:, j] = u_svd[:, 0], s[0] * vt_svd[0]
+    return u, v
+
 
 if __name__ == '__main__':
     np.random.seed(0)
