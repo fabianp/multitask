@@ -657,6 +657,7 @@ def rank_one_frankwolfe(X, Y, size_u, u0=None, rtol=1e-3,
             #print((alpha, f(w_old), f(w0[:, j])))
             #import ipdb; ipdb.set_trace()
 
+
         obj_new = .5 * linalg.norm(Y - X.dot(w0), 'fro') ** 2
         print('LOSS: %s' % obj_new)
         print('TOL: %s' % (np.abs(obj_old - obj_new) / obj_new))
@@ -664,6 +665,9 @@ def rank_one_frankwolfe(X, Y, size_u, u0=None, rtol=1e-3,
             print('Converged')
             #break
         obj_old = obj_new
+        # w_tmp = w0.reshape((size_u, size_v, n_task), order='F')
+        # u, v = svd_power_method(w_tmp, v, 10)
+        # w0 = khatri_rao(v, u)
         if plot:
             w_tmp = w0.reshape((size_u, size_v, n_task), order='F')
             for j in range(n_task):
