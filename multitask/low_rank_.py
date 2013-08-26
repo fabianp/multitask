@@ -259,7 +259,8 @@ def rmatmat2(X, a, b, n_task):
 
 
 def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
-             rtol=1e-6, verbose=False, maxiter=1000, callback=None):
+             rtol=1e-6, verbose=False, maxiter=1000, callback=None,
+             plot=False):
     """
     multi-target rank one model
 
@@ -344,13 +345,12 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         grad[size_u + size_v:] = Z_.rmatvec(tmp)
         return - grad.reshape((-1,), order='F')
 
-    do_plot = True
-    if do_plot:
+    if plot:
         import pylab as pl
         fig = pl.figure()
         pl.show()
 
-    def plot(w, energy):
+    def do_plot(w, energy):
         from nipy.modalities.fmri import hemodynamic_models as hdm
         canonical = hdm.glover_hrf(1., 1., size_u)
         print('PLOT')
@@ -374,10 +374,10 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         print('LOSS: %s' % new_obj)
         if callback is not None:
             callback(w)
-        if do_plot:
-            plot(w, new_obj)
+        if plot:
+            do_plot(w, new_obj)
 
-    Y_split = [Y] #np.array_split(Y_train, n_split, axis=1)
+    Y_split = [Y] # np.array_split(Y_train, n_split, axis=1)
     U = np.zeros((size_u, n_task))
     V = np.zeros((size_v, n_task))
     C = np.zeros((Z_.shape[1], n_task))
@@ -388,17 +388,21 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         w0_i = w0.ravel('F')
         u0_i = u0[:, counter:(counter + y_i.shape[1])]
         cb(w0_i)
-        out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime,
-                factr=rtol / np.finfo(np.float).eps,
-                args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter,
-                disp=0, callback=cb)
+        # out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime,
+        #         factr=rtol / np.finfo(np.float).eps,
+        #         args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter,
+        #         disp=0, callback=cb)
+        # if out[2]['warnflag'] != 0:
+        #     print('Not converged')
+        # else:
+        #     if verbose:
+        #         print('Converged')
+        out = optimize.fmin_cg(
+            f, w0_i, fprime=fprime, args=(X, y_i, Z_, y_i.shape[1], u0_i),
+            callback=cb)
 
-        if out[2]['warnflag'] != 0:
-           print('Not converged')
-        else:
-            if verbose:
-                print('Converged')
-        W = out[0].reshape((-1, y_i.shape[1]), order='F')
+
+        W = out.reshape((-1, y_i.shape[1]), order='F')
         U[:, counter:counter + y_i.shape[1]] = W[:size_u]
         V[:, counter:counter + y_i.shape[1]] = W[size_u:size_u + size_v]
         C[:, counter:counter + y_i.shape[1]] = W[size_u + size_v:]
@@ -791,10 +795,11 @@ def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
     if u0 is None:
         u0 = np.random.randn(size_u, 1)
     if u0.ndim == 1 or u0.shape[1] == 1:
-        u = np.repeat(u0, n_task).reshape((-1, n_task))
+        u = np.empty((u0.size, n_task))
+        u[:, :] = u0
     else:
         u = u0
-    u = np.asfortranarray(u)
+
     if v0 is None:
         v = np.random.randn(size_v, n_task)
     else:
@@ -807,13 +812,15 @@ def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
     XY = X.T.dot(Y)
     X_ = splinalg.aslinearoperator(X)
     obj_old = np.inf
+    a = Y - matmat2(X_, u, v, n_task)
+    grad_u = - rmatmat1(X_, v, a, n_task)
+    grad_v = - rmatmat2(X_, u, a, n_task)
+    pu = - grad_u
+    pv = - grad_v
     for n_iter in range(1, maxiter):
         print('ITER: %s' % n_iter)
         print('PROJECTION')
         # projection step
-        a = Y - matmat2(X_, u, v, n_task)
-        grad_u = - rmatmat1(X_, v, a, n_task)
-        grad_v = - rmatmat2(X_, u, a, n_task)
 
         b = - (matmat2(X_, grad_u, v, n_task) + matmat2(X_, u, grad_v, n_task))
         c = - matmat2(X_, grad_u, grad_v, n_task)
@@ -822,21 +829,29 @@ def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
         a1 = (b * b + 2 * c * a).sum(0)
         a2 = 3 * (b * c).sum(0)
         a3 = 2 * (c * c).sum(0)
-        # import ipdb; ipdb.set_trace()
 
-        def ff(alpha):
-            tmp = matmat2(X_, u + alpha * grad_u, v + alpha * grad_v, n_task)
-            return 0.5 * (linalg.norm(Y - tmp, 'fro') ** 2)
+        q0 = a2 / a3
+        q1 = a1 / a3
+        q2 = a0 / a3
+        step_size = np.empty(n_task)
+        for i in range(n_task):
+            root = polyCubicRoots(q0[i], q1[i], q2[i])
+            step_size[i] = root[0]
 
-        def ff2(alpha):
-            return 0.5 * (linalg.norm(a + alpha * b + alpha * c, 'fro') ** 2)
-
-        #import ipdb; ipdb.set_trace()
-
-        root = polyCubicRoots(a2 / a3, a1 / a3, a0 / a3)
-        step_size = root[0]
         u += step_size * grad_u
         v += step_size * grad_v
+
+        a = Y - matmat2(X_, u, v, n_task)
+        new_grad_u = - rmatmat1(X_, v, a, n_task)
+        new_grad_v = - rmatmat2(X_, u, a, n_task)
+        beta_k1 = (new_grad_u * (new_grad_u - grad_u)).sum(0) / (grad_u *
+                                                                 grad_u).sum(0)
+        beta_k1 += (new_grad_v * (new_grad_v - grad_v)).sum(0) / (grad_v *
+                                                                  grad_v)\
+            .sum(0)
+        beta_k1 = np.fmax(beta_k1, 0)
+        grad_u = - new_grad_u - beta_k1 * pu
+        grad_v = - new_grad_v - beta_k1 * pv
 
         obj_new = .5 * linalg.norm(Y - matmat2(X_, u, v, n_task), 'fro') ** 2
         print('LOSS: %s' % obj_new)
@@ -852,7 +867,7 @@ def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
             print('PLOT')
             pl.clf()
             pl.ylim((-1., 1.))
-            tmp = (u - u.mean(0)[:, None])
+            tmp = (u - u.mean(0))
             sgn = np.sign(tmp.T.dot(u0.ravel('F')[:size_u] - u0.mean()))
             tmp *= sgn
 

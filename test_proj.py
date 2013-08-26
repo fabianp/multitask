@@ -22,7 +22,7 @@ X = scipy.io.mmread(ds.open('X_train.mtx')).tocsr()
 X_test = scipy.io.mmread(ds.open('X_test.mtx')).tocsr()
 #Y_train = scipy.io.mmread(ds.open('Y_train.mtx.gz'))
 Y = np.load('Y_10000.npy')
-n_task = 1
+n_task = 100
 
 # print('K_inv')
 # K_inv = scipy.io.mmread(ds.open('K_inv.mtx')).tocsr()
@@ -73,9 +73,9 @@ def callback(w):
 
 u0 = np.repeat(canonical, n_task).reshape((-1, n_task))
 start = datetime.now()
-out = mt.rank_one_cg(
+out = mt.rank_one_ecg(
     X, Y_train, fir_length, u0=None, v0=None,
-    rtol=1e-6, verbose=False, maxiter=100,
+    rtol=1e-6, verbose=False, maxiter=1000,
     callback=None, plot=True)
 print datetime.now() - start
 u, v = out
