@@ -696,6 +696,176 @@ def rank_one_frankwolfe(X, Y, size_u, u0=None, rtol=1e-3,
     return u, v
 
 
+
+from math import *
+
+def cuberoot(x):
+    if x >= 0:
+        return x**(1/3.0)
+    else: # negative argument!
+        return -(-x)**(1/3.0)
+
+def polyCubicRoots(a,b, c):
+    print "input=", a,b,c
+    aby3 = a / 3.0
+    p = b - a*aby3
+    q = (2*aby3**2- b)*(aby3) + c
+    X =(p/3.0)**3
+    Y = (q/2.0)**2
+    Q = X + Y
+    print "Q=", Q
+    if Q >= 0:
+        sqQ = sqrt(Q)
+        # Debug January 11, 2013. Thanks to a reader!
+        t = (-q/2.0 + sqQ)
+        A = cuberoot(t)
+        t = (-q/2.0 - sqQ)
+        B = cuberoot(t)
+
+        r1 = A + B- aby3
+        re = -(A+B)/2.0-aby3
+        im = sqrt(3.0)/2.0*(A-B)
+        r2 = (re,im)
+        r3 = (re,-im)
+    else:
+        # This part has been tested.
+        p3by27= sqrt(-p**3/27.0)
+        costheta = -q/2.0/ p3by27
+        print "@@@ costheta=", costheta
+        alpha = acos(costheta)
+        mag = 2 * sqrt(-p/3.0)
+        alphaby3 = alpha/3.0
+        r1 = mag  * cos(alphaby3) - aby3
+        r2 = -mag * cos(alphaby3+ pi/3)-aby3
+        r3 = -mag * cos(alphaby3- pi/3) -aby3
+    return r1, r2, r3
+
+def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
+                        maxiter=100, verbose=False,
+                        callback=None, v0=None, plot=False):
+    """
+    multi-target rank one model
+
+        ||y - X vec(u v.T)||_2 ^2
+
+    TODO: prior_u
+
+    Parameters
+    ----------
+    X : array-like, shape (n, p)
+    Y_train : array-like, shape (n, k)
+    size_u : integer
+        Must be divisor of p
+    u0 : array
+        Initial value for u
+    v0 : array
+        Initial value for v
+    rtol : float
+    maxiter : int
+        maximum number of iterations
+    verbose : bool
+        If True, prints the value of the objective
+        function at each iteration
+
+    Returns
+    -------
+    U : array, shape (size_u, k)
+    V : array, shape (p / size_u, k)
+    W : XXX
+
+    Reference
+    ---------
+    """
+
+
+    Y = np.asarray(Y)
+    if Y.ndim == 1:
+        Y = Y.reshape((-1, 1))
+    n_task = Y.shape[1]
+    size_v = X.shape[1] / size_u
+
+    # .. check dimensions in input ..
+    if X.shape[0] != Y.shape[0]:
+        raise ValueError('Wrong shape for X, y')
+
+    if plot:
+        import pylab as pl
+
+    if u0 is None:
+        u0 = np.random.randn(size_u, 1)
+    if u0.ndim == 1 or u0.shape[1] == 1:
+        u = np.repeat(u0, n_task).reshape((-1, n_task))
+    else:
+        u = u0
+    u = np.asfortranarray(u)
+    if v0 is None:
+        v = np.random.randn(size_v, n_task)
+    else:
+        v = v0
+
+    if plot:
+        fig = pl.figure()
+        pl.show()
+
+    XY = X.T.dot(Y)
+    X_ = splinalg.aslinearoperator(X)
+    obj_old = np.inf
+    for n_iter in range(1, maxiter):
+        print('ITER: %s' % n_iter)
+        print('PROJECTION')
+        # projection step
+        a = matmat2(X_, u, v, n_task)
+        grad_u = - rmatmat1(X_, v, a, n_task)
+        grad_v = - rmatmat2(X_, u, a, n_task)
+
+        b = - (matmat2(X_, grad_u, v, n_task) + matmat2(X_, u, grad_v, n_task))
+        c = - matmat2(X_, grad_u, grad_v, n_task)
+
+        a0 = (b * a).sum(0)
+        a1 = (b * b + 2 * c * a).sum(0)
+        a2 = 3 * (b * c).sum(0)
+        a3 = 2 * (c * c).sum(0)
+        # import ipdb; ipdb.set_trace()
+
+        root = polyCubicRoots(a2 / a3, a1 / a3, a0 / a3)
+        import ipdb; ipdb.set_trace()
+        step_size = root[0]
+        u += step_size * grad_u
+        v += step_size * grad_v
+
+        obj_new = .5 * linalg.norm(Y - matmat2(X_, u, v, n_task), 'fro') ** 2
+        print('LOSS: %s' % obj_new)
+        print('TOL: %s' % (np.abs(obj_old - obj_new) / obj_new))
+        if np.abs(obj_old - obj_new) / obj_new < rtol:
+            print('Converged')
+            #break
+        obj_old = obj_new
+        # w_tmp = w0.reshape((size_u, size_v, n_task), order='F')
+        # u, v = svd_power_method(w_tmp, v, 10)
+        # w0 = khatri_rao(v, u)
+        if plot:
+            print('PLOT')
+            pl.clf()
+            pl.ylim((-1., 1.))
+            tmp = (u - u.mean(0)[:, None])
+            sgn = np.sign(tmp.T.dot(u0.ravel('F')[:size_u] - u0.mean()))
+            tmp *= sgn
+
+            norm = tmp.max(0) - tmp.min(0)
+            tmp = tmp / norm
+            pl.plot(tmp)
+            #                pl.ylim((-1, 1.2))
+            pl.draw()
+            pl.xlim((0, size_u))
+            #pl.savefig('proj_%03d.png' % n_iter)
+        if callback is not None:
+            callback((u, v))
+
+    return u, v
+
+
+
+
 if __name__ == '__main__':
     np.random.seed(0)
     size_u, size_v = 9, 48
@@ -704,8 +874,8 @@ if __name__ == '__main__':
     u_true, v_true = np.random.rand(size_u, 2), 1 + .1 * np.random.randn(size_v, 2)
     B = np.dot(u_true, v_true.T)
     y = X.dot(B.ravel('F')) + .1 * np.random.randn(X.shape[0])
-    y = np.array([i * y for i in range(1, 3)]).T
-    u, v = rank_one_proj2(X.A, y, .001, size_u, verbose=True)
+    #y = np.array([i * y for i in range(1, 3)]).T
+    u, v = rank_one_ecg(X.A, y, size_u, verbose=True)
 
     import pylab as plt
     plt.matshow(B)
