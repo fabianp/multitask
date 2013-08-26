@@ -706,14 +706,12 @@ def cuberoot(x):
         return -(-x)**(1/3.0)
 
 def polyCubicRoots(a,b, c):
-    print "input=", a,b,c
     aby3 = a / 3.0
     p = b - a*aby3
     q = (2*aby3**2- b)*(aby3) + c
     X =(p/3.0)**3
     Y = (q/2.0)**2
     Q = X + Y
-    print "Q=", Q
     if Q >= 0:
         sqQ = sqrt(Q)
         # Debug January 11, 2013. Thanks to a reader!
@@ -731,7 +729,6 @@ def polyCubicRoots(a,b, c):
         # This part has been tested.
         p3by27= sqrt(-p**3/27.0)
         costheta = -q/2.0/ p3by27
-        print "@@@ costheta=", costheta
         alpha = acos(costheta)
         mag = 2 * sqrt(-p/3.0)
         alphaby3 = alpha/3.0
@@ -814,7 +811,7 @@ def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
         print('ITER: %s' % n_iter)
         print('PROJECTION')
         # projection step
-        a = matmat2(X_, u, v, n_task)
+        a = Y - matmat2(X_, u, v, n_task)
         grad_u = - rmatmat1(X_, v, a, n_task)
         grad_v = - rmatmat2(X_, u, a, n_task)
 
@@ -827,8 +824,16 @@ def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
         a3 = 2 * (c * c).sum(0)
         # import ipdb; ipdb.set_trace()
 
+        def ff(alpha):
+            tmp = matmat2(X_, u + alpha * grad_u, v + alpha * grad_v, n_task)
+            return 0.5 * (linalg.norm(Y - tmp, 'fro') ** 2)
+
+        def ff2(alpha):
+            return 0.5 * (linalg.norm(a + alpha * b + alpha * c, 'fro') ** 2)
+
+        #import ipdb; ipdb.set_trace()
+
         root = polyCubicRoots(a2 / a3, a1 / a3, a0 / a3)
-        import ipdb; ipdb.set_trace()
         step_size = root[0]
         u += step_size * grad_u
         v += step_size * grad_v
