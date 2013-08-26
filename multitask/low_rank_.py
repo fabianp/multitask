@@ -850,8 +850,8 @@ def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
                                                                   grad_v)\
             .sum(0)
         beta_k1 = np.fmax(beta_k1, 0)
-        grad_u = - new_grad_u - beta_k1 * pu
-        grad_v = - new_grad_v - beta_k1 * pv
+        grad_u = - new_grad_u + beta_k1 * pu
+        grad_v = - new_grad_v + beta_k1 * pv
 
         obj_new = .5 * linalg.norm(Y - matmat2(X_, u, v, n_task), 'fro') ** 2
         print('LOSS: %s' % obj_new)
