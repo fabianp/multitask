@@ -22,7 +22,7 @@ X = scipy.io.mmread(ds.open('X.mtx')).tocsr()
 #X_test = scipy.io.mmread(ds.open('X_test.mtx')).tocsr()
 #Y_train = scipy.io.mmread(ds.open('Y_train.mtx.gz'))
 Y = scipy.io.mmread(ds.open('Y.mtx'))
-n_task = 1
+n_task = 10
 
 # print('K_inv')
 # K_inv = scipy.io.mmread(ds.open('K_inv.mtx')).tocsr()
@@ -71,6 +71,7 @@ print('Calling rank_one_proj2')
 loss = []
 timings = []
 
+
 def callback(w):
     loss.append(.5 * (linalg.norm(Y_train - X.dot(w)) ** 2))
     timings.append((datetime.now() - start).total_seconds())
@@ -80,7 +81,7 @@ start = datetime.now()
 out = mt.rank_one(
     X, Y_train, fir_length, u0=u0, v0=v0,
     rtol=1e-6, verbose=False, maxiter=1000,
-    callback=None, plot=True)
+    callback=None, plot=False)
 1/0
 print datetime.now() - start
 u, v = out

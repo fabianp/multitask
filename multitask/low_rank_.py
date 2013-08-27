@@ -291,7 +291,7 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
     alpha = 0.
     X = splinalg.aslinearoperator(X)
     if Z is None:
-        # create identity operator
+        # create zero operator
         Z_ = splinalg.LinearOperator(shape=(X.shape[0], 1),
             matvec=lambda x: np.zeros((X.shape[0], x.shape[1])),
             rmatvec=lambda x: np.zeros((1, x.shape[1])), dtype=np.float)
@@ -331,19 +331,67 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         return cost + reg
 
     def f(w, X_, Y_, Z_, n_task, u0):
-        W = w.reshape((-1, n_task), order='F')
+        W = w.reshape((-1, 1), order='F')
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
         return obj(X_, Y_, Z_, u, v, c, u0)
 
     def fprime(w, X_, Y_, Z_, n_task, u0):
-        W = w.reshape((-1, n_task), order='F')
+        n_task = 1
+        W = w.reshape((-1, 1), order='F')
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
-        tmp = Y_ - matmat2(X_, u, v, n_task) - Z_.matmat(c)
+        tmp = Y_ - matmat2(X_, u, v, 1) - Z_.matmat(c)
         grad = np.empty((size_u + size_v + Z_.shape[1], n_task))  # TODO: do outside
         grad[:size_u] = rmatmat1(X, v, tmp, n_task) - alpha * (u - u0)
-        grad[size_u:size_u + size_v] = rmatmat2(X, u, tmp, n_task)
+        grad[size_u:size_u + size_v] = rmatmat2(X, u, tmp, 1)
         grad[size_u + size_v:] = Z_.rmatvec(tmp)
         return - grad.reshape((-1,), order='F')
+
+    def hess(w, s, X_, Y_, Z_, n_task, u0):
+        # TODO: regularization
+        s = s.reshape((-1, 1))
+        X_ = splinalg.aslinearoperator(X_)
+        Z_ = splinalg.aslinearoperator(Z_)
+        n_task = Y_.shape[1]
+        size_v = X_.shape[1] / size_u
+        W = w.reshape((-1, n_task), order='F')
+        XY = X_.rmatvec(Y_)  # TODO: move out
+        u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
+        s1, s2, s3 = s[:size_u], s[size_u:size_u + size_v], s[size_u + size_v:]
+        W2 = X_.rmatvec(matmat2(X_, u, v, n_task))
+        W2 = W2.reshape((-1, s2.shape[0]), order='F')
+        XY = XY.reshape((-1, s2.shape[0]), order='F')
+
+        n_task = 1
+        tmp = matmat2(X_, s1, v, n_task)
+        As1 = rmatmat1(X_, v, tmp, n_task)
+        tmp = matmat2(X_, u, s2, n_task)
+        Ds2 = rmatmat2(X_, u, tmp, n_task)
+        tmp = Z_.matvec(s3)
+
+        Cs3 = rmatmat1(X_, v, tmp, n_task)
+        tmp = matmat2(X_, s1, v, n_task).T
+        Cts1 = Z_.rmatvec(tmp.T)
+
+        tmp = matmat2(X_, u, s2, n_task)
+        Bs2 = rmatmat1(X_, v, tmp, n_task) + W2.dot(s2) - XY.dot(s2)
+
+        tmp = matmat2(X_, s1, v, n_task)
+        Bts1 = rmatmat2(X_, u, tmp, n_task) + W2.T.dot(s1) - XY.T.dot(s1)
+
+        tmp = Z_.matvec(s3)
+        Es3 = rmatmat2(X_, u, tmp, n_task)
+
+        tmp = matmat2(X_, u, s2, n_task)
+        Ets2 = Z_.rmatvec(tmp)
+
+        Fs3 = - Z_.rmatvec(Z_.matvec(s3))
+
+        line0 = As1 + Bs2 + Cs3
+        line1 = Bts1 + Ds2 + Es3
+        line2 = Cts1 + Ets2 + Fs3
+
+        return np.concatenate((line0, line1, line2))
+
 
     if plot:
         import pylab as pl
@@ -354,7 +402,7 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         from nipy.modalities.fmri import hemodynamic_models as hdm
         canonical = hdm.glover_hrf(1., 1., size_u)
         print('PLOT')
-        W = w.reshape((-1, n_task), order='F')
+        W = w.reshape((-1, 1), order='F')
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
         pl.clf()
         tmp = u.copy()
@@ -371,7 +419,7 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
     n_iter = 0.
     global n_iter
     def cb(w):
-        W = w.reshape((-1, n_task), order='F')
+        W = w.reshape((-1, 1), order='F')
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
         new_obj = obj(X, Y, Z_, u, v, c, u0)
         global n_iter
@@ -383,16 +431,15 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         if plot:
             do_plot(w, new_obj)
 
-    Y_split = [Y] # np.array_split(Y_train, n_split, axis=1)
     U = np.zeros((size_u, n_task))
     V = np.zeros((size_v, n_task))
     C = np.zeros((Z_.shape[1], n_task))
     counter = 0
 
-
-    for y_i in Y_split: # TODO; remove
-        w0_i = w0.ravel('F')
-        u0_i = u0[:, counter:(counter + y_i.shape[1])]
+    for i, y_i in enumerate(Y.T): # TODO; remove
+        y_i = y_i.reshape((-1, 1))
+        w0_i = w0[:, i].ravel('F')
+        u0_i = u0[:, i].reshape((-1, 1))
         cb(w0_i)
         # out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime,
         #         factr=rtol / np.finfo(np.float).eps,
@@ -406,15 +453,16 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         # out = optimize.fmin_cg(
         #     f, w0_i, fprime=fprime, args=(X, y_i, Z_, y_i.shape[1], u0_i),
         #     callback=cb)
-        args = (X, y_i, Z_, y_i.shape[1], u0_i)
-        out = optimize.minimize(f, w0_i, jac=fprime, args=args, callback=cb,
-                                method='Newton-CG')
+        args = (X, y_i, Z_, n_task, u0_i)
+        options = {'maxiter' : maxiter}
+        out = optimize.minimize(
+            f, w0_i, jac=fprime, args=args, callback=cb, hessp=hess,
+                                method='Newton-CG', options=options)
         out = out.x
         W = out.reshape((-1, y_i.shape[1]), order='F')
-        U[:, counter:counter + y_i.shape[1]] = W[:size_u]
-        V[:, counter:counter + y_i.shape[1]] = W[size_u:size_u + size_v]
-        C[:, counter:counter + y_i.shape[1]] = W[size_u + size_v:]
-        counter += y_i.shape[1]
+        U[:, i] = W[:size_u].ravel()
+        V[:, i] = W[size_u:size_u + size_v].ravel()
+        C[:, i] = W[size_u + size_v:].ravel()
 
     if Z is None:
         return U, V
@@ -432,15 +480,6 @@ def svd_power_method(X, Q, max_iter):
     U = (X * Q).sum(1)
     return U, Q
 
-def svd_smallest_power_method(X, lambdamax, Q, max_iter):
-    # returns dominant singular value
-    for _ in range(max_iter):
-        tmp = (X * Q).sum(1)
-        zk = (X.transpose((1, 0, 2)) * tmp).sum(1)
-        Q = zk / np.sqrt((zk ** 2).sum(0))
-
-    U = (X * Q).sum(1)
-    return U, Q
 
 def rank_one_gradproj(X, Y, size_u, u0=None, rtol=1e-3,
                    maxiter=50, verbose=False,
@@ -484,7 +523,7 @@ def rank_one_gradproj(X, Y, size_u, u0=None, rtol=1e-3,
     Y = np.asarray(Y)
     if Y.ndim == 1:
         Y = Y.reshape((-1, 1))
-    n_task = Y.shape[1]
+    n_task = 1
     size_v = X.shape[1] / size_u
 
     # .. check dimensions in input ..
