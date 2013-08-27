@@ -18,11 +18,11 @@ canonical = hdm.glover_hrf(1., 1., fir_length).reshape((-1, 1))
 print('Loading data')
 ds = np.DataSource(DIR)
 print('X')
-X = scipy.io.mmread(ds.open('X_train.mtx')).tocsr()
-X_test = scipy.io.mmread(ds.open('X_test.mtx')).tocsr()
+X = scipy.io.mmread(ds.open('X.mtx')).tocsr()
+#X_test = scipy.io.mmread(ds.open('X_test.mtx')).tocsr()
 #Y_train = scipy.io.mmread(ds.open('Y_train.mtx.gz'))
-Y = np.load('Y_10000.npy')
-n_task = 10
+Y = scipy.io.mmread(ds.open('Y.mtx'))
+n_task = 1
 
 # print('K_inv')
 # K_inv = scipy.io.mmread(ds.open('K_inv.mtx')).tocsr()
@@ -39,12 +39,16 @@ Y = scipy.signal.detrend(
 Y_train = Y[:X.shape[0]]
 Y_test = Y[X.shape[0]:]
 
-print('Precomputing initialization point')
-size_u = fir_length
-size_v = X.shape[1] / size_u
-Iu = np.kron(np.eye(size_v, size_v), canonical)  # could be faster
-Q = X.dot(Iu)
-v0 = linalg.lstsq(Q, Y_train)[0]
+if False:
+    print('Precomputing initialization point')
+    size_u = fir_length
+    size_v = X.shape[1] / size_u
+    Iu = np.kron(np.eye(size_v, size_v), canonical)  # could be faster
+    Q = X.dot(Iu)
+    v0 = linalg.lstsq(Q, Y_train)[0]
+    np.save('v0.npy', v0)
+else:
+    v0 = np.load('v0.npy')
 
 
 # ls_sol = [splinalg.lsqr(X, Y_train[:, i])[0] for i in range(Y_train.shape[1])]
@@ -73,10 +77,11 @@ def callback(w):
 
 u0 = np.repeat(canonical, n_task).reshape((-1, n_task))
 start = datetime.now()
-out = mt.rank_one_ecg(
-    X, Y_train, fir_length, u0=None, v0=None,
+out = mt.rank_one(
+    X, Y_train, fir_length, u0=u0, v0=v0,
     rtol=1e-6, verbose=False, maxiter=1000,
     callback=None, plot=True)
+1/0
 print datetime.now() - start
 u, v = out
 norm_res = 0.

@@ -360,17 +360,23 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         tmp = u.copy()
         sgn = np.sign(u.T.dot(canonical.ravel()))
         tmp *= sgn
-        tmp = tmp / np.sqrt((tmp * tmp).sum(0))
+        norm = tmp.max(0) - tmp.min(0)
+        tmp = tmp / norm
         pl.plot(tmp)
         pl.title('LOSS: %s' % energy)
         #                pl.ylim((-1, 1.2))
         pl.draw()
         pl.xlim((0, size_u))
 
+    n_iter = 0.
+    global n_iter
     def cb(w):
         W = w.reshape((-1, n_task), order='F')
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
         new_obj = obj(X, Y, Z_, u, v, c, u0)
+        global n_iter
+        print('ITER: %s' % n_iter)
+        n_iter += 1
         print('LOSS: %s' % new_obj)
         if callback is not None:
             callback(w)
@@ -397,11 +403,13 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         # else:
         #     if verbose:
         #         print('Converged')
-        out = optimize.fmin_cg(
-            f, w0_i, fprime=fprime, args=(X, y_i, Z_, y_i.shape[1], u0_i),
-            callback=cb)
-
-
+        # out = optimize.fmin_cg(
+        #     f, w0_i, fprime=fprime, args=(X, y_i, Z_, y_i.shape[1], u0_i),
+        #     callback=cb)
+        args = (X, y_i, Z_, y_i.shape[1], u0_i)
+        out = optimize.minimize(f, w0_i, jac=fprime, args=args, callback=cb,
+                                method='Newton-CG')
+        out = out.x
         W = out.reshape((-1, y_i.shape[1]), order='F')
         U[:, counter:counter + y_i.shape[1]] = W[:size_u]
         V[:, counter:counter + y_i.shape[1]] = W[size_u:size_u + size_v]
@@ -543,7 +551,7 @@ def rank_one_gradproj(X, Y, size_u, u0=None, rtol=1e-3,
             sgn = np.sign(tmp.T.dot(u0.ravel('F')[:size_u] - u0.mean()))
             tmp *= sgn
 
-            norm = tmp.max(0) - tmp.min(0) 
+            norm = tmp.max(0) - tmp.min(0)
             tmp = tmp / norm
             pl.plot(tmp)
             #                pl.ylim((-1, 1.2))
@@ -648,12 +656,12 @@ def rank_one_frankwolfe(X, Y, size_u, u0=None, rtol=1e-3,
             yj = Y[:, j]
             sj = s[:, j]
             tmp = X.T.dot(X).dot(sj)
-            alpha = (sj.dot(X.T.dot(yj)) - tmp.dot(w0[:, j])) / tmp.dot(sj)            
+            alpha = (sj.dot(X.T.dot(yj)) - tmp.dot(w0[:, j])) / tmp.dot(sj)
             def f(w):
                 return .5 * linalg.norm(yj - X.dot(w)) ** 2
             # def fprime(w):
             #     return - X.T.dot(yj) + X.T.dot(X.dot(w))
-            # tmp = 
+            # tmp =
             # alpha = optimize.line_search(f, fprime, w0[:, j], s[:, j])[0]
             w_old = w0[:, j].copy()
             w0[:, j] += alpha * s[:, j]
@@ -684,7 +692,7 @@ def rank_one_frankwolfe(X, Y, size_u, u0=None, rtol=1e-3,
             sgn = np.sign(tmp.T.dot(u0.ravel('F')[:size_u] - u0.mean()))
             tmp *= sgn
 
-            norm = tmp.max(0) - tmp.min(0) 
+            norm = tmp.max(0) - tmp.min(0)
             tmp = tmp / norm
             pl.plot(tmp)
             #                pl.ylim((-1, 1.2))
@@ -809,15 +817,14 @@ def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
         fig = pl.figure()
         pl.show()
 
-    XY = X.T.dot(Y)
     X_ = splinalg.aslinearoperator(X)
     obj_old = np.inf
     a = Y - matmat2(X_, u, v, n_task)
     grad_u = - rmatmat1(X_, v, a, n_task)
     grad_v = - rmatmat2(X_, u, a, n_task)
-    pu = - grad_u
-    pv = - grad_v
+    pk = [-grad_u, -grad_v]
     for n_iter in range(1, maxiter):
+        deltak = (grad_u * grad_u).sum(0) + (grad_v * grad_v).sum(0)
         print('ITER: %s' % n_iter)
         print('PROJECTION')
         # projection step
@@ -830,6 +837,12 @@ def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
         a2 = 3 * (b * c).sum(0)
         a3 = 2 * (c * c).sum(0)
 
+        def ff(alpha):
+            tmp = Y - matmat2(
+                X_, u + alpha * pk[0],
+                v + alpha * pk[1], n_task)
+            return .5 * (linalg.norm(tmp,'fro') ** 2)
+
         q0 = a2 / a3
         q1 = a1 / a3
         q2 = a0 / a3
@@ -837,21 +850,29 @@ def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
         for i in range(n_task):
             root = polyCubicRoots(q0[i], q1[i], q2[i])
             step_size[i] = root[0]
+        step_size = optimize.minimize_scalar(ff, tol=1e-32).x
 
-        u += step_size * grad_u
-        v += step_size * grad_v
+        #print(.5 * linalg.norm(Y - matmat2(X_, u, v, n_task), 'fro') ** 2)
+        u += step_size * pk[0]
+        v += step_size * pk[1]
+        #print(.5 * linalg.norm(Y - matmat2(X_, u, v, n_task), 'fro') ** 2)
 
         a = Y - matmat2(X_, u, v, n_task)
         new_grad_u = - rmatmat1(X_, v, a, n_task)
         new_grad_v = - rmatmat2(X_, u, a, n_task)
-        beta_k1 = (new_grad_u * (new_grad_u - grad_u)).sum(0) / (grad_u *
-                                                                 grad_u).sum(0)
-        beta_k1 += (new_grad_v * (new_grad_v - grad_v)).sum(0) / (grad_v *
-                                                                  grad_v)\
-            .sum(0)
-        beta_k1 = np.fmax(beta_k1, 0)
-        grad_u = - new_grad_u + beta_k1 * pu
-        grad_v = - new_grad_v + beta_k1 * pv
+        yk_u = new_grad_u - grad_u
+        yk_v = new_grad_v - grad_v
+        beta_k = ((yk_u * new_grad_u).sum(0) + (yk_v * new_grad_v).sum(0))
+        beta_k = max(0, beta_k / deltak)
+        # if (grad_u * new_grad_u).sum() / (grad_u * grad_u).sum() >= .1:
+        #     # restart
+        #     print('RESTART')
+        #     beta_k = 0.
+
+        #import ipdb; ipdb.set_trace()
+        pk = [- new_grad_u + beta_k * pk[0], - new_grad_v + beta_k * pk[1]]
+        grad_u = new_grad_u
+        grad_v = new_grad_v
 
         obj_new = .5 * linalg.norm(Y - matmat2(X_, u, v, n_task), 'fro') ** 2
         print('LOSS: %s' % obj_new)
