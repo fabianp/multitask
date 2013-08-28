@@ -260,7 +260,7 @@ def rmatmat2(X, a, b, n_task):
 
 def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
              rtol=1e-6, verbose=False, maxiter=1000, callback=None,
-             plot=False):
+             plot=False, method='Newton-CG'):
     """
     multi-target rank one model
 
@@ -340,30 +340,30 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         W = w.reshape((-1, 1), order='F')
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
         tmp = Y_ - matmat2(X_, u, v, 1) - Z_.matmat(c)
-        grad = np.empty((size_u + size_v + Z_.shape[1], n_task))  # TODO: do outside
-        grad[:size_u] = rmatmat1(X, v, tmp, n_task) - alpha * (u - u0)
+        grad = np.empty((size_u + size_v + Z_.shape[1], 1))  # TODO: do outside
+        grad[:size_u] = rmatmat1(X, v, tmp, 1) - alpha * (u - u0)
         grad[size_u:size_u + size_v] = rmatmat2(X, u, tmp, 1)
         grad[size_u + size_v:] = Z_.rmatvec(tmp)
         return - grad.reshape((-1,), order='F')
+
 
     def hess(w, s, X_, Y_, Z_, n_task, u0):
         # TODO: regularization
         s = s.reshape((-1, 1))
         X_ = splinalg.aslinearoperator(X_)
         Z_ = splinalg.aslinearoperator(Z_)
-        n_task = Y_.shape[1]
         size_v = X_.shape[1] / size_u
-        W = w.reshape((-1, n_task), order='F')
+        W = w.reshape((-1, 1), order='F')
         XY = X_.rmatvec(Y_)  # TODO: move out
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
         s1, s2, s3 = s[:size_u], s[size_u:size_u + size_v], s[size_u + size_v:]
-        W2 = X_.rmatvec(matmat2(X_, u, v, n_task))
+        W2 = X_.rmatvec(matmat2(X_, u, v, 1))
         W2 = W2.reshape((-1, s2.shape[0]), order='F')
         XY = XY.reshape((-1, s2.shape[0]), order='F')
 
         n_task = 1
-        tmp = matmat2(X_, s1, v, n_task)
-        As1 = rmatmat1(X_, v, tmp, n_task)
+        A_tmp = matmat2(X_, s1, v, n_task)
+        As1 = rmatmat1(X_, v, A_tmp, n_task)
         tmp = matmat2(X_, u, s2, n_task)
         Ds2 = rmatmat2(X_, u, tmp, n_task)
         tmp = Z_.matvec(s3)
@@ -390,13 +390,18 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         line1 = Bts1 + Ds2 + Es3
         line2 = Cts1 + Ets2 + Fs3
 
-        return np.concatenate((line0, line1, line2))
+        return np.concatenate((line0, line1, line2)).ravel()
 
 
     if plot:
         import pylab as pl
         fig = pl.figure()
         pl.show()
+        from nipy.modalities.fmri import hemodynamic_models as hdm
+        canonical = hdm.glover_hrf(1., 1., size_u)
+        canonical -= canonical.mean()
+        pl.plot(canonical / (canonical.max() - canonical.min()), lw=4)
+
 
     def do_plot(w, energy):
         from nipy.modalities.fmri import hemodynamic_models as hdm
@@ -404,7 +409,8 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         print('PLOT')
         W = w.reshape((-1, 1), order='F')
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
-        pl.clf()
+        u -= u.mean(0)
+        #pl.clf()
         tmp = u.copy()
         sgn = np.sign(u.T.dot(canonical.ravel()))
         tmp *= sgn
@@ -418,47 +424,36 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
 
     n_iter = 0.
     global n_iter
-    def cb(w):
-        W = w.reshape((-1, 1), order='F')
-        u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
-        new_obj = obj(X, Y, Z_, u, v, c, u0)
-        global n_iter
-        print('ITER: %s' % n_iter)
-        n_iter += 1
-        print('LOSS: %s' % new_obj)
-        if callback is not None:
-            callback(w)
-        if plot:
-            do_plot(w, new_obj)
 
     U = np.zeros((size_u, n_task))
     V = np.zeros((size_v, n_task))
     C = np.zeros((Z_.shape[1], n_task))
-    counter = 0
 
-    for i, y_i in enumerate(Y.T): # TODO; remove
-        y_i = y_i.reshape((-1, 1))
+    for i in range(n_task): # TODO; remove
+        n_iter = 0
+        y_i = Y[:, i].reshape((-1, 1))
+        def cb(w):
+            W = w.reshape((-1, 1), order='F')
+            u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
+            new_obj = obj(X, y_i, Z_, u, v, c, u0)
+            print('LOSS: %s' % new_obj)
+            if callback is not None:
+                callback(w)
+            if plot:
+                do_plot(w, new_obj)
         w0_i = w0[:, i].ravel('F')
         u0_i = u0[:, i].reshape((-1, 1))
-        cb(w0_i)
-        # out = optimize.fmin_l_bfgs_b(f, w0_i, fprime=fprime,
-        #         factr=rtol / np.finfo(np.float).eps,
-        #         args=(X, y_i, Z_, y_i.shape[1], u0_i), maxfun=maxiter,
-        #         disp=0, callback=cb)
-        # if out[2]['warnflag'] != 0:
-        #     print('Not converged')
-        # else:
-        #     if verbose:
-        #         print('Converged')
-        # out = optimize.fmin_cg(
-        #     f, w0_i, fprime=fprime, args=(X, y_i, Z_, y_i.shape[1], u0_i),
-        #     callback=cb)
-        args = (X, y_i, Z_, n_task, u0_i)
-        options = {'maxiter' : maxiter}
+
+        args = (X, y_i, Z_, 1, u0_i)
+        options = {'maxiter' : maxiter, 'xtol' : rtol}
         out = optimize.minimize(
-            f, w0_i, jac=fprime, args=args, callback=cb, hessp=hess,
-                                method='Newton-CG', options=options)
+            f, w0_i, jac=fprime, args=args, hessp=hess,
+                                method=method, options=options,
+                                callback=callback)
+        if hasattr(out, 'nit'):
+            print('Number of iterations: %s' % out.nit)
         out = out.x
+        cb(out)
         W = out.reshape((-1, y_i.shape[1]), order='F')
         U[:, i] = W[:size_u].ravel()
         V[:, i] = W[size_u:size_u + size_v].ravel()
