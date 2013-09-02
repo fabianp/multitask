@@ -401,46 +401,41 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         canonical = hdm.glover_hrf(1., 1., size_u)
         canonical -= canonical.mean()
         pl.plot(canonical / (canonical.max() - canonical.min()), lw=4)
+        pl.draw()
+        pl.show()
 
 
-    def do_plot(w, energy):
+    def do_plot(w):
         from nipy.modalities.fmri import hemodynamic_models as hdm
         canonical = hdm.glover_hrf(1., 1., size_u)
         print('PLOT')
         W = w.reshape((-1, 1), order='F')
         u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
-        u -= u.mean(0)
+        #u -= u.mean(0)
         #pl.clf()
         tmp = u.copy()
-        sgn = np.sign(u.T.dot(canonical.ravel()))
+        sgn = np.sign(u.max(0))
         tmp *= sgn
         norm = tmp.max(0) - tmp.min(0)
         tmp = tmp / norm
         pl.plot(tmp)
-        pl.title('LOSS: %s' % energy)
-        #                pl.ylim((-1, 1.2))
+        # pl.ylim((-1, 1.2))
         pl.draw()
         pl.xlim((0, size_u))
-
-    n_iter = 0.
-    global n_iter
 
     U = np.zeros((size_u, n_task))
     V = np.zeros((size_v, n_task))
     C = np.zeros((Z_.shape[1], n_task))
 
-    for i in range(n_task): # TODO; remove
-        n_iter = 0
+    def cb(w):
+        print(1)
+        if plot:
+            do_plot(w)
+        if callback is not None:
+            callback(w)
+
+    for i in range(n_task):
         y_i = Y[:, i].reshape((-1, 1))
-        def cb(w):
-            W = w.reshape((-1, 1), order='F')
-            u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
-            new_obj = obj(X, y_i, Z_, u, v, c, u0)
-            print('LOSS: %s' % new_obj)
-            if callback is not None:
-                callback(w)
-            if plot:
-                do_plot(w, new_obj)
         w0_i = w0[:, i].ravel('F')
         u0_i = u0[:, i].reshape((-1, 1))
 
@@ -449,14 +444,18 @@ def rank_one(X, Y, size_u, u0=None, v0=None, Z=None,
         out = optimize.minimize(
             f, w0_i, jac=fprime, args=args, hessp=hess,
                                 method=method, options=options,
-                                callback=callback)
+                                callback=cb)
+
         if hasattr(out, 'nit'):
             print('Number of iterations: %s' % out.nit)
         out = out.x
-        cb(out)
+        if plot:
+            do_plot()
         W = out.reshape((-1, y_i.shape[1]), order='F')
-        U[:, i] = W[:size_u].ravel()
-        V[:, i] = W[size_u:size_u + size_v].ravel()
+        ui = W[:size_u].ravel()
+        norm_ui = linalg.norm(ui)
+        U[:, i] = ui / norm_ui
+        V[:, i] = W[size_u:size_u + size_v].ravel() * norm_ui
         C[:, i] = W[size_u + size_v:].ravel()
 
     if Z is None:
