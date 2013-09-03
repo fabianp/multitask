@@ -85,23 +85,17 @@ u0 = np.repeat(canonical, n_task).reshape((-1, n_task))
 
 if len(sys.argv) > 1 and sys.argv[1] == 'OBO':
     print('GOING OBO')
+    start = datetime.now()
     X_obo = classic_to_obo(X_train.toarray(), fir_length)
     X_tmp = X_obo[0, :, :20] + X_obo[0, :, 20:]
-    u = linalg.lstsq(X_tmp, Y_train)[0]
-    u = u / np.sqrt((u * u).sum(0))
-    pl.plot(u)
-    pl.show()
-    #
-    # import ipdb; ipdb.set_trace()
-    # u, v = [], []
-    # for i in range(v0.shape[0]):
-    #     out = mt.rank_one(
-    #         X_obo[i], Y_train, fir_length, u0=u0, v0=v0[i],
-    #         rtol=1e-12, verbose=False, maxiter=500,
-    #         callback=None, plot=True, method='TNC')
-    #     u.append(out[0])
-    #     v.append(out[1])
-    #     import ipdb; ipdb.set_trace()
+    u0 = linalg.lstsq(X_tmp, Y_train)[0]
+    u0 = u0 / np.sqrt((u0 * u0).sum(0))
+    import multitask as mt
+    out = mt.rank_one_obo(
+        X_train, Y_train, fir_length, u0=u0, v0=v0,
+        verbose=False, plot=True)
+    print datetime.now() - start
+    u, v = out
 
 else:
     print('RANK ONE CLASSIC SETTING')

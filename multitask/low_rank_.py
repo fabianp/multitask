@@ -939,6 +939,88 @@ def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
 
 
 
+def rank_one_obo(X, Y, size_u, u0=None, rtol=1e-3,
+                 maxiter=100, verbose=False,
+                 callback=None, v0=None, plot=False):
+    """
+    multi-target rank one model
+
+        ||y - X vec(u v.T)||_2 ^2
+
+    TODO: prior_u
+
+    Parameters
+    ----------
+    X : array-like, shape (n, p)
+    Y_train : array-like, shape (n, k)
+    size_u : integer
+        Must be divisor of p
+    u0 : array
+        Initial value for u
+    v0 : array
+        Initial value for v
+    rtol : float
+    maxiter : int
+        maximum number of iterations
+    verbose : bool
+        If True, prints the value of the objective
+        function at each iteration
+
+    Returns
+    -------
+    U : array, shape (size_u, k)
+    V : array, shape (p / size_u, k)
+    W : XXX
+
+    Reference
+    ---------
+    """
+
+
+    Y = np.asarray(Y)
+    if Y.ndim == 1:
+        Y = Y.reshape((-1, 1))
+    n_task = Y.shape[1]
+    size_v = X.shape[1] / size_u
+
+    # .. check dimensions in input ..
+    if X.shape[0] != Y.shape[0]:
+        raise ValueError('Wrong shape for X, y')
+
+    if plot:
+        import pylab as pl
+
+    if u0 is None:
+        u0 = np.random.randn(size_u, 1)
+    if u0.ndim == 1 or u0.shape[1] == 1:
+        u = np.empty((u0.size, n_task))
+        u[:, :] = u0
+    else:
+        u = u0
+
+    if v0 is None:
+        v = np.random.randn(size_v, n_task)
+    else:
+        v = v0
+
+    if plot:
+        fig = pl.figure()
+        pl.show()
+
+    X0 = splinalg.aslinearoperator(X)
+    uu = sparse.hstack([sparse.eye(size_u)] * size_v)
+    X1 = sparse.hstack([X.dot(uu.T)] * size_v)
+    X1 = X1 - X
+    import ipdb; ipdb.set_trace()
+    obj_old = np.inf
+    a = Y - matmat2(X0, u, v, n_task)
+    grad_u = - rmatmat1(X0, v, a, n_task)
+    grad_v = - rmatmat2(X0, u, a, n_task)
+    pk = [-grad_u, -grad_v]
+    for n_iter in range(1, maxiter):
+        pass
+
+
 
 if __name__ == '__main__':
     np.random.seed(0)

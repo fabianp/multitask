@@ -32,6 +32,7 @@ def conj_loss(X, y, Xy, M, epsilon, sol0):
     p -= 0.5 * epsilon * (linalg.norm(sol) ** 2)
     return p, sol
 
+
 def trace_pobj(X, y, B, alpha, epsilon, s_vals):
     n_samples, _ = X.shape
     bt = B.ravel(order='F')
@@ -136,8 +137,6 @@ def trace_frankwolfe(X, y, shape_B, rtol=1e-3, max_iter=100, verbose=False,
         return .5 * (linalg.norm(y - X.dot(w)) ** 2)
 
     w = np.zeros(X.shape[1])
-    s = np.ones(X.shape[1])
-    shape_S = (shape_B[0], shape_B[1], 1)
     obj_vals = []
     start = datetime.now()
     time_vals = []
@@ -152,9 +151,9 @@ def trace_frankwolfe(X, y, shape_B, rtol=1e-3, max_iter=100, verbose=False,
         u, sv, v = splinalg.svds(grad.reshape(shape_B, order='F'), 1, tol=.1)
         #import ipdb; ipdb.set_trace()
         s = - np.outer(u, v, ).ravel('F')
-        q = X.dot(s)
-        alpha = q.dot(res) / q.dot(X.dot(s))
-        #alpha = 2. / (i + 2.)
+        #q = X.dot(s)
+        #alpha = q.dot(res) / q.dot(X.dot(s))
+        alpha = 2. / (i + 2.)
         w = (1 - alpha) * w + alpha * s
     return w, obj_vals, time_vals
 
@@ -163,21 +162,20 @@ if __name__ == '__main__':
     np.random.seed(0)
     X = np.random.randn(1000, 1000)
     shape_B = (100, 10)
-    u, s, vt = linalg.svd(np.random.randn(*shape_B))
-    s[5:] = 0.
-    s[:5] = 1.
-    w = np.outer(s, vt).ravel('F')
+    u, s, vt = linalg.svd(np.random.randn(*shape_B), full_matrices=False)
+    w = np.outer(u[:, 0], vt[:, 0]).ravel('F') + \
+        np.outer(u[:, 1], vt[:, 1]).ravel('F')
     w /= linalg.svdvals(w.reshape(shape_B, order='F')).sum()
     y = X.dot(w)
     y += (y.max() / 1.) * np.random.randn(X.shape[0])
 
     w_, obj_vals, time_vals = trace_frankwolfe(X, y, shape_B)
     obj_vals = [o - np.min(obj_vals) for o in obj_vals]
-    alpha = 211.
+    alpha = 593
     import pylab as pl
-    pl.plot(time_vals[:10], obj_vals[:10], color='orange',
+    pl.plot(time_vals[:20], obj_vals[:20], color='orange',
             label='Frank Wolfe')
-    pl.scatter(time_vals[:10], obj_vals[:10], color='orange')
+    pl.scatter(time_vals[:20], obj_vals[:20], color='orange')
 
     w2, _, obj_vals2, time_vals2 = trace(X, y, alpha, 0., shape_B,
                                          accelerated=False)
@@ -196,6 +194,7 @@ if __name__ == '__main__':
 
     pl.legend()
     #pl.yscale('log')
+    pl.axis('tight')
     pl.xlabel('Time (in seconds)')
     pl.ylabel('f(x_k)')
     pl.show()
