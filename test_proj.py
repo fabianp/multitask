@@ -86,10 +86,7 @@ u0 = np.repeat(canonical, n_task).reshape((-1, n_task))
 if len(sys.argv) > 1 and sys.argv[1] == 'OBO':
     print('GOING OBO')
     start = datetime.now()
-    X_obo = classic_to_obo(X_train.toarray(), fir_length)
-    X_tmp = X_obo[0, :, :20] + X_obo[0, :, 20:]
-    u0 = linalg.lstsq(X_tmp, Y_train)[0]
-    u0 = u0 / np.sqrt((u0 * u0).sum(0))
+    u0 = None
     import multitask as mt
     out = mt.rank_one_obo(
         X_train, Y_train, fir_length, u0=u0, v0=v0,
@@ -100,16 +97,15 @@ if len(sys.argv) > 1 and sys.argv[1] == 'OBO':
 else:
     print('RANK ONE CLASSIC SETTING')
     start = datetime.now()
-    X_obo = classic_to_obo(X_train.toarray(), fir_length)
-    X_tmp = X_obo[0, :, :20] + X_obo[0, :, 20:]
-    u0 = linalg.lstsq(X_tmp, Y_train)[0]
-    u0 = u0 / np.sqrt((u0 * u0).sum(0))
+    u0 = canonical
+    import multitask as mt
     import hrf_estimation as he
-    out = he.rank_one(
+    out = he.rank_one_obo(
         X_train, Y_train, fir_length, u0=u0, v0=v0,
-        verbose=False, plot=True)
+        verbose=False)
     print datetime.now() - start
     u, v = out
+    import ipdb; ipdb.set_trace()
 
 residuals_rank_one = []
 for i in range(5):

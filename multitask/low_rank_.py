@@ -998,19 +998,30 @@ def rank_one_obo(X, Y, size_u, u0=None, rtol=1e-3,
     else:
         u = u0
 
-    if v0 is None:
-        v = np.random.randn(size_v, n_task)
-    else:
-        v = v0
+    v0 = np.zeros((size_v, n_task))
+    w0 = np.zeros((size_v, n_task))
 
     if plot:
         fig = pl.figure()
         pl.show()
 
     X0 = splinalg.aslinearoperator(X)
-    uu = sparse.hstack([sparse.eye(size_u)] * size_v)
-    X1 = sparse.hstack([X.dot(uu.T)] * size_v)
-    X1 = X1 - X
+    II = sparse.hstack([sparse.eye(size_u)] * size_v)
+    X_all = X.dot(II.T)
+    uu = sparse.block_diag([np.ones((size_u, 1))] * size_v).tocsr()
+    for i in range(n_task):
+        u_i = u[:, i]
+        v_i = sparse.diags(v0[:, i], 0)
+        w_i = sparse.diags(w0[:, i], 0)
+        uu.data[:] = np.tile(u_i, size_v)
+        Xu = X.dot(uu)
+        X_all_u = X_all.dot(u[:, i])
+        res = Y[:, i] - Xu.dot(v_i) + Xu.dot(w_i) - X_all_u.dot(w_i)
+        import ipdb; ipdb.set_trace()
+
+    def f_obj(w):
+        pass
+
     import ipdb; ipdb.set_trace()
     obj_old = np.inf
     a = Y - matmat2(X0, u, v, n_task)
