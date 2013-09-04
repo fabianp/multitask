@@ -1029,12 +1029,12 @@ def rank_one_obo(X, Y, size_u, u0=None, rtol=1e-3,
             res = Y[:, i][:, None] - Xuv + Xuw - \
                 X_all_u[:, None] * w_i
             res = np.asarray(res)  # matrix type, go wonder
-            res_bd.data[:] = res.ravel()
+            res_bd.data[:] = res.ravel('F')
             X_res = X_bd.T.dot(res_bd.T)
             X_res = X_res.sum(1).reshape((size_u, size_v), order='F')
             X_all_res = X_all.T.dot(res)
             grad_u = X_res.dot(v_i) - X_res.dot(w_i) - X_all_res.dot(w_i)
-            grad_v = X_res.T.dot(u_i)
+            grad_v = - X_res.T.dot(u_i)
             grad_w = grad_v - X_all_res.T.dot(u_i)
             grad = np.concatenate((grad_u, grad_v, grad_w), axis=1)
             return 0.5 * (res * res).sum(), np.asarray(grad).ravel()
@@ -1059,18 +1059,19 @@ def rank_one_obo(X, Y, size_u, u0=None, rtol=1e-3,
 
 
         def func(u):
-            w0[size_u:size_u + 10] = u
+            w0[:10] = u
             return f(w0)[0]
 
         def grad(u):
-            w0[size_u:size_u + 10] = u
-            return f(w0)[1][size_u:size_u + 10]
+            w0[:10] = u
+            return f(w0)[1][:10]
 
         u = np.random.randn(10)
         print(func(u))
         print(naive_f(w0))
         print(optimize.approx_fprime(u, func, 1e-3))
-        optimize.check_grad(func, grad, u)
+        print(grad(u))
+        # optimize.check_grad(func, grad, u)
         import ipdb; ipdb.set_trace()
 
 
