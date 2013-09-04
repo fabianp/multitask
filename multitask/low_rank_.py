@@ -998,9 +998,6 @@ def rank_one_obo(X, Y, size_u, u0=None, rtol=1e-3,
     else:
         u = u0
 
-    v0 = np.zeros((size_v, n_task))
-    w0 = np.zeros((size_v, n_task))
-
     if plot:
         fig = pl.figure()
         pl.show()
@@ -1009,18 +1006,73 @@ def rank_one_obo(X, Y, size_u, u0=None, rtol=1e-3,
     II = sparse.hstack([sparse.eye(size_u)] * size_v)
     X_all = X.dot(II.T)
     uu = sparse.block_diag([np.ones((size_u, 1))] * size_v).tocsr()
+    K = []
+    X_blockdiag = []
+    for i in range(size_v):
+        X_tmp = X[:, size_u * i:size_u * (i + 1)]
+        X_blockdiag.append(X_tmp)
+    X_bd = sparse.block_diag(X_blockdiag).tocsr()
+    X_bd_ = splinalg.aslinearoperator(X_bd)
+    res_bd = sparse.block_diag([np.ones(Y.shape[0])] * size_v).tocsr()
     for i in range(n_task):
-        u_i = u[:, i]
-        v_i = sparse.diags(v0[:, i], 0)
-        w_i = sparse.diags(w0[:, i], 0)
-        uu.data[:] = np.tile(u_i, size_v)
-        Xu = X.dot(uu)
-        X_all_u = X_all.dot(u[:, i])
-        res = Y[:, i] - Xu.dot(v_i) + Xu.dot(w_i) - X_all_u.dot(w_i)
+        #np.random.seed(0)
+        w0 = np.random.randn(size_u + 2 * size_v)
+        def f(w):
+            u_i = w[:size_u]
+            v_i = w[size_u:size_u + size_v]
+            w_i = w[size_u + size_v:size_u + 2 * size_v]
+            Xuv = matmat2(X_bd_, u_i[:, None], v_i[:, None], 1)
+            Xuv = Xuv.reshape((Y.shape[0], -1), order='F')
+            Xuw = matmat2(X_bd_, u_i[:, None], w_i[:, None], 1)
+            Xuw = Xuw.reshape((Y.shape[0], -1), order='F')
+            X_all_u = X_all.dot(u_i)
+            res = Y[:, i][:, None] - Xuv + Xuw - \
+                X_all_u[:, None] * w_i
+            res = np.asarray(res)  # matrix type, go wonder
+            res_bd.data[:] = res.ravel()
+            X_res = X_bd.T.dot(res_bd.T)
+            X_res = X_res.sum(1).reshape((size_u, size_v), order='F')
+            X_all_res = X_all.T.dot(res)
+            grad_u = X_res.dot(v_i) - X_res.dot(w_i) - X_all_res.dot(w_i)
+            grad_v = X_res.T.dot(u_i)
+            grad_w = grad_v - X_all_res.T.dot(u_i)
+            grad = np.concatenate((grad_u, grad_v, grad_w), axis=1)
+            return 0.5 * (res * res).sum(), np.asarray(grad).ravel()
+
+
+        def naive_f(w):
+            u_i = w[:size_u]
+            v_i = w[size_u:size_u + size_v]
+            w_i = w[size_u + size_v:size_u + 2 * size_v]
+            res = []
+            X_all = X[:, 0:size_u]
+            for j in range(1, size_v):
+                X_all = X_all + X[:, size_u * j: size_u * (j + 1)]
+            for j in range(size_v):
+                X_i = X[:, size_u * j: size_u * (j + 1)]
+                tmp = \
+                    Y[:, i] - v_i[j] * X_i.dot(u_i) + w_i[j] * X_i.dot(u_i) \
+                    - w_i[j] * X_all.dot(u_i)
+                res.append(tmp)
+            res = np.array(res)
+            return np.sum(res * res)
+
+
+        def func(u):
+            w0[size_u:size_u + 10] = u
+            return f(w0)[0]
+
+        def grad(u):
+            w0[size_u:size_u + 10] = u
+            return f(w0)[1][size_u:size_u + 10]
+
+        u = np.random.randn(10)
+        print(func(u))
+        print(naive_f(w0))
+        print(optimize.approx_fprime(u, func, 1e-3))
+        optimize.check_grad(func, grad, u)
         import ipdb; ipdb.set_trace()
 
-    def f_obj(w):
-        pass
 
     import ipdb; ipdb.set_trace()
     obj_old = np.inf

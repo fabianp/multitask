@@ -90,7 +90,7 @@ if len(sys.argv) > 1 and sys.argv[1] == 'OBO':
     import multitask as mt
     out = mt.rank_one_obo(
         X_train, Y_train, fir_length, u0=u0, v0=v0,
-        verbose=False, plot=True)
+        verbose=False)
     print datetime.now() - start
     u, v = out
 
