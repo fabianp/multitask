@@ -938,10 +938,46 @@ def rank_one_ecg(X, Y, size_u, u0=None, rtol=1e-3,
     return u, v
 
 
+def _compute_obo(x0, X_bd, X_all, yi, plot, size_u, size_v):
+    X_bd_ = splinalg.aslinearoperator(X_bd)
+    res_bd = sparse.block_diag([np.ones(yi.shape[0])] * size_v).tocsr()
+
+    def f(w):
+        u_i = w[:size_u]
+        v_i = w[size_u:size_u + size_v]
+        w_i = w[size_u + size_v:size_u + 2 * size_v]
+        Xuv = matmat2(X_bd_, u_i[:, None], v_i[:, None], 1)
+        Xuv = Xuv.reshape((yi.shape[0], -1), order='F')
+        Xuw = matmat2(X_bd_, u_i[:, None], w_i[:, None], 1)
+        Xuw = Xuw.reshape((yi.shape[0], -1), order='F')
+        X_all_u = X_all.dot(u_i)
+        X_all_uw = X_all_u[:, None] * w_i
+        res = yi[:, None] - Xuv + Xuw - X_all_uw
+        res = np.asarray(res)  # matrix type, go wonder
+        res_bd.data = res.ravel('F')
+        X_res = X_bd_.rmatvec(res_bd.T)
+        X_res = X_res.sum(1).reshape((size_u, size_v), order='F')
+        X_all_res = X_all.T.dot(res)
+        grad_u = X_res.dot(v_i) - X_res.dot(w_i) - X_all_res.dot(w_i)
+        grad_v = - X_res.T.dot(u_i)
+        grad_w = grad_v - X_all_res.T.dot(u_i)
+        grad = np.concatenate((grad_u, grad_v, grad_w), axis=1)
+        return 0.5 * (res * res).sum(), np.asarray(grad).ravel()
+
+    out = optimize.fmin_tnc(f, x0, disp=5, maxfun=150)
+    u = out[0][:size_u]
+    u = u * np.sign(u[5])
+    u /= linalg.norm(u)
+    if plot:
+        import pylab as pl
+        pl.plot(u)
+        pl.draw()
+    v = out[0][size_u:size_u + size_v]
+    return u, v
 
 def rank_one_obo(X, Y, size_u, u0=None, rtol=1e-3,
                  maxiter=100, verbose=False,
-                 callback=None, v0=None, plot=False):
+                 callback=None, v0=None, plot=False, n_jobs=1):
     """
     multi-target rank one model
 
@@ -995,9 +1031,14 @@ def rank_one_obo(X, Y, size_u, u0=None, rtol=1e-3,
     if u0.ndim == 1 or u0.shape[1] == 1:
         u = np.empty((u0.size, n_task))
         u[:, :] = u0
+        u0 = u
     else:
         u = u0
 
+    if v0 is None:
+        v0 = np.random.randn(size_v, n_task)
+
+    w0 = np.random.randn(size_v, n_task)
     if plot:
         fig = pl.figure()
         pl.show()
@@ -1012,78 +1053,16 @@ def rank_one_obo(X, Y, size_u, u0=None, rtol=1e-3,
         X_tmp = X[:, size_u * i:size_u * (i + 1)]
         X_blockdiag.append(X_tmp)
     X_bd = sparse.block_diag(X_blockdiag).tocsr()
-    X_bd_ = splinalg.aslinearoperator(X_bd)
-    res_bd = sparse.block_diag([np.ones(Y.shape[0])] * size_v).tocsr()
-    for i in range(n_task):
-        #np.random.seed(0)
-        w0 = np.random.randn(size_u + 2 * size_v)
-        def f(w):
-            u_i = w[:size_u]
-            v_i = w[size_u:size_u + size_v]
-            w_i = w[size_u + size_v:size_u + 2 * size_v]
-            Xuv = matmat2(X_bd_, u_i[:, None], v_i[:, None], 1)
-            Xuv = Xuv.reshape((Y.shape[0], -1), order='F')
-            Xuw = matmat2(X_bd_, u_i[:, None], w_i[:, None], 1)
-            Xuw = Xuw.reshape((Y.shape[0], -1), order='F')
-            X_all_u = X_all.dot(u_i)
-            res = Y[:, i][:, None] - Xuv + Xuw - \
-                X_all_u[:, None] * w_i
-            res = np.asarray(res)  # matrix type, go wonder
-            res_bd.data[:] = res.ravel('F')
-            X_res = X_bd.T.dot(res_bd.T)
-            X_res = X_res.sum(1).reshape((size_u, size_v), order='F')
-            X_all_res = X_all.T.dot(res)
-            grad_u = X_res.dot(v_i) - X_res.dot(w_i) - X_all_res.dot(w_i)
-            grad_v = - X_res.T.dot(u_i)
-            grad_w = grad_v - X_all_res.T.dot(u_i)
-            grad = np.concatenate((grad_u, grad_v, grad_w), axis=1)
-            return 0.5 * (res * res).sum(), np.asarray(grad).ravel()
+    x0 = np.concatenate((u0, v0, w0))
 
-
-        def naive_f(w):
-            u_i = w[:size_u]
-            v_i = w[size_u:size_u + size_v]
-            w_i = w[size_u + size_v:size_u + 2 * size_v]
-            res = []
-            X_all = X[:, 0:size_u]
-            for j in range(1, size_v):
-                X_all = X_all + X[:, size_u * j: size_u * (j + 1)]
-            for j in range(size_v):
-                X_i = X[:, size_u * j: size_u * (j + 1)]
-                tmp = \
-                    Y[:, i] - v_i[j] * X_i.dot(u_i) + w_i[j] * X_i.dot(u_i) \
-                    - w_i[j] * X_all.dot(u_i)
-                res.append(tmp)
-            res = np.array(res)
-            return np.sum(res * res)
-
-
-        def func(u):
-            w0[:10] = u
-            return f(w0)[0]
-
-        def grad(u):
-            w0[:10] = u
-            return f(w0)[1][:10]
-
-        u = np.random.randn(10)
-        print(func(u))
-        print(naive_f(w0))
-        print(optimize.approx_fprime(u, func, 1e-3))
-        print(grad(u))
-        # optimize.check_grad(func, grad, u)
-        import ipdb; ipdb.set_trace()
-
-
-    import ipdb; ipdb.set_trace()
-    obj_old = np.inf
-    a = Y - matmat2(X0, u, v, n_task)
-    grad_u = - rmatmat1(X0, v, a, n_task)
-    grad_v = - rmatmat2(X0, u, a, n_task)
-    pk = [-grad_u, -grad_v]
-    for n_iter in range(1, maxiter):
-        pass
-
+    from joblib import Parallel, delayed
+    out = Parallel(n_jobs=n_jobs)(
+        delayed(_compute_obo)(
+            x0[:, k], X_bd, X_all, Y[:, k],
+            plot, size_u, size_v) for k in range(n_task))
+    U = np.array([out[i][0] for i in range(n_task)]).T
+    V = np.array([out[i][1] for i in range(n_task)]).T
+    return U, V
 
 
 if __name__ == '__main__':

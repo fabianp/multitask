@@ -19,7 +19,10 @@ canonical = hdm.glover_hrf(1., 1., fir_length).reshape((-1, 1))
 print('Loading data')
 ds = np.DataSource(DIR)
 X_train = scipy.io.mmread(ds.open('X_train.mtx')).tocsr()
+# import ipdb; ipdb.set_trace()
+# X_train = X_train[:X_train.shape[0] / 4, :X_train.shape[1] / 4]
 X_test = scipy.io.mmread(ds.open('X_test.mtx')).tocsr()
+#X_test = X_test[:, -X_train.shape[1]:]
 #Y_train = scipy.io.mmread(ds.open('Y_train.mtx.gz'))
 Y = scipy.io.mmread(ds.open('Y.mtx'))
 n_task = 50
@@ -36,7 +39,7 @@ Y_test = Y[X_train.shape[0]:]
 
 size_u = fir_length
 size_v = X_train.shape[1] / size_u
-if False:
+if True:
     print('Precomputing initialization point')
     Iu = np.kron(np.eye(size_v, size_v), canonical)  # could be faster
     Q = X_train.dot(Iu)
@@ -86,11 +89,11 @@ u0 = np.repeat(canonical, n_task).reshape((-1, n_task))
 if len(sys.argv) > 1 and sys.argv[1] == 'OBO':
     print('GOING OBO')
     start = datetime.now()
-    u0 = None
+    u0 = canonical
     import multitask as mt
     out = mt.rank_one_obo(
         X_train, Y_train, fir_length, u0=u0, v0=v0,
-        verbose=False)
+        verbose=False, plot=False, n_jobs=-1)
     print datetime.now() - start
     u, v = out
 
@@ -105,24 +108,33 @@ else:
         verbose=False)
     print datetime.now() - start
     u, v = out
-    import ipdb; ipdb.set_trace()
 
 residuals_rank_one = []
-for i in range(5):
-    Iu = np.kron(np.eye(size_v, size_v), u[:, i][:, None])
+for i in range(n_task):
+    Iu = sparse.kron(sparse.eye(size_v, size_v), u[:, i][:, None])
     # could be faster
     Q = X_test.dot(Iu)
-    v0 = linalg.lstsq(Q, Y_test[:, i])[0]
+    v0 = splinalg.lsqr(Q, Y_test[:, i])[0]
     res = linalg.norm(Y_test[:, i] - Q.dot(v0))
     residuals_rank_one.append(res)
+    print('Done %s out of %s' % (i, n_task))
 print('RESIDUALS RANK ONE: %s' % np.sum(residuals_rank_one))
 
 residuals_canonical = []
 Iu = np.kron(np.eye(size_v, size_v), canonical)
 # could be faster
 Q = X_test.dot(Iu)
-for i in range(5):
-    v_tmp = linalg.lstsq(Q, Y_test[:, i])[0]
-    res = linalg.norm(Y_test[:, i] - Q.dot(v_tmp))
+v_tmp = linalg.lstsq(Q, Y_test)[0]
+for i in range(n_task):
+    res = linalg.norm(Y_test[:, i] - Q.dot(v_tmp[:, i]))
     residuals_canonical.append(res)
+    print('Done %s out of %s' % (i, n_task))
 print('RESIDUALS CANONICAL: %s' % np.sum(residuals_canonical))
+
+pl.scatter(residuals_rank_one, residuals_canonical)
+xx = np.linspace(np.min(residuals_canonical) - 1,
+                 np.max(residuals_canonical) + 1)
+pl.plot(xx, xx)
+pl.xlabel('MSE glm Canonical')
+pl.ylabel('MSE glm rank one OBO')
+pl.show()
