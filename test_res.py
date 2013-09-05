@@ -24,8 +24,8 @@ X_train = scipy.io.mmread(ds.open('X_train.mtx')).tocsr()
 X_test = scipy.io.mmread(ds.open('X_test.mtx')).tocsr()
 #X_test = X_test[:, -X_train.shape[1]:]
 #Y_train = scipy.io.mmread(ds.open('Y_train.mtx.gz'))
-Y = scipy.io.mmread(ds.open('Y.mtx'))
-n_task = 50
+Y = np.load('Y_10000.npy')
+n_task = 500
 print('Done')
 
 
@@ -103,9 +103,9 @@ else:
     u0 = canonical
     import multitask as mt
     import hrf_estimation as he
-    out = he.rank_one_obo(
+    out = he.rank_one(
         X_train, Y_train, fir_length, u0=u0, v0=v0,
-        verbose=False)
+        verbose=True)
     print datetime.now() - start
     u, v = out
 
@@ -137,4 +137,6 @@ xx = np.linspace(np.min(residuals_canonical) - 1,
 pl.plot(xx, xx)
 pl.xlabel('MSE glm Canonical')
 pl.ylabel('MSE glm rank one OBO')
+pl.xscale('log')
+pl.yscale('log')
 pl.show()
