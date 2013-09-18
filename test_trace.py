@@ -22,7 +22,7 @@ X = scipy.io.mmread(ds.open('X_train.mtx')).tocsr()
 X_test = scipy.io.mmread(ds.open('X_test.mtx')).tocsr()
 #Y_train = scipy.io.mmread(ds.open('Y_train.mtx.gz'))
 Y = np.load('Y_10000.npy')
-n_task = 5
+n_task = 50
 
 # print('K_inv')
 # K_inv = scipy.io.mmread(ds.open('K_inv.mtx')).tocsr()

@@ -955,32 +955,17 @@ def _compute_obo(x0, X_bd, X_all, yi, plot, size_u, size_v, verbose,
         X_all_uw = X_all_u[:, None] * w_i
         res = yi[:, None] - Xuv + Xuw - X_all_uw
         res = np.asarray(res)  # matrix type, go wonder
-        out = np.zeros(yi.size * size_v)
-        for i in range(size_v):
-            out[yi.size * i: yi.size * (i + 1)] = \
-                yi - X[:, size_u * i:size_u * (i + 1)].dot(u_i)
-        import ipdb; ipdb.set_trace()
         res_bd.data = res.ravel('F')
-        X_res = X_bd_.rmatvec(res_bd.T)
-        X_res = X_res.sum(1).reshape((size_u, size_v), order='C')
-        X_all_res = X_all.T.dot(res)
+        X_res = X_bd_.rmatvec(res_bd)
+        X_res = X_res.sum(1).reshape((size_u, size_v), order='F')
+
+        X_all_res = - X_all.T.dot(res)
         grad_u = - X_res.dot(v_i) + X_res.dot(w_i) + X_all_res.dot(w_i)
         grad_v = - X_res.T.dot(u_i)
-        grad_w = grad_v - X_all_res.T.dot(u_i)
+        grad_w = grad_v + X_all_res.T.dot(u_i)
         grad = np.concatenate((grad_u, grad_v, grad_w), axis=1)
         return 0.5 * (res * res).sum(), np.asarray(grad).ravel()
 
-    def fun(w):
-        return f(w)[0]
-    def grad(w):
-        return f(w)[1]
-
-    approx = optimize.approx_fprime(x0, fun, 1e-3)
-    import pylab as pl
-    pl.plot(grad(x0) - approx)
-    pl.show()
-
-    import ipdb; ipdb.set_trace()
 
     out = optimize.fmin_tnc(f, x0, disp=5, maxfun=maxiter, messages=verbose)
     u = out[0][:size_u]
@@ -994,7 +979,7 @@ def _compute_obo(x0, X_bd, X_all, yi, plot, size_u, size_v, verbose,
     return u, v
 
 def rank_one_obo(X, Y, size_u, u0=None, rtol=1e-3,
-                 maxiter=100, verbose=False,
+                 maxiter=300, verbose=False,
                  callback=None, v0=None, plot=False, n_jobs=1):
     """
     multi-target rank one model
@@ -1050,8 +1035,6 @@ def rank_one_obo(X, Y, size_u, u0=None, rtol=1e-3,
         u = np.empty((u0.size, n_task))
         u[:, :] = u0
         u0 = u
-    else:
-        u = u0
 
     if v0 is None:
         v0 = np.random.randn(size_v, n_task)

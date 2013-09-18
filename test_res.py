@@ -28,7 +28,7 @@ X_train = X_session[:5 * k]
 X_test = X_session[5 * k:]
 Y_train = Y_session[:5 * k]
 Y_test = Y_session[5 * k:]
-n_task = 500
+n_task = 1000
 print('Done')
 
 
@@ -53,7 +53,7 @@ Y_test = Y_test.reshape((1344, -1))
 
 size_u = fir_length
 size_v = X_train.shape[1] / size_u
-if False:
+if True:
     print('Precomputing initialization point')
     Iu = np.kron(np.eye(size_v, size_v), canonical)  # could be faster
     Q = X_train.dot(Iu)
@@ -101,20 +101,18 @@ u0 = np.repeat(canonical, n_task).reshape((-1, n_task))
 
 going_obo = len(sys.argv) > 1 and sys.argv[1] == 'OBO'
 
-print('GOING OBO')
-start = datetime.now()
-u0 = canonical
-import multitask as mt
-out = mt.rank_one_obo(
-    X_train, Y_train, fir_length, u0=u0, v0=v0,
-    verbose=False, plot=False, n_jobs=1)
-print datetime.now() - start
-u_obo, v = out
+# print('GOING OBO')
+# start = datetime.now()
+# u0 = canonical
+# out = mt.rank_one_obo(
+#     X_train, Y_train, fir_length, u0=u0, v0=v0,
+#     verbose=False, plot=False, n_jobs=6)
+# print datetime.now() - start
+# u_obo, v = out
 
 print('RANK ONE CLASSIC SETTING')
 start = datetime.now()
 u0 = canonical
-import multitask as mt
 import hrf_estimation as he
 out = he.rank_one(
     X_train, Y_train, fir_length, u0=u0, v0=v0,
