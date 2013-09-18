@@ -116,7 +116,7 @@ u0 = canonical
 import hrf_estimation as he
 out = he.rank_one(
     X_train, Y_train, fir_length, u0=u0, v0=v0,
-    verbose=True)
+    verbose=2)
 print datetime.now() - start
 u, v = out
 
