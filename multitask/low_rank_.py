@@ -943,7 +943,7 @@ def _compute_obo(x0, X_bd, X_all, yi, plot, size_u, size_v, verbose,
     X_bd_ = splinalg.aslinearoperator(X_bd)
     res_bd = sparse.block_diag([np.ones((yi.shape[0], 1))] * size_v).tocsr()
 
-    def f(w):
+    def fun_grad(w):
         u_i = w[:size_u]
         v_i = w[size_u:size_u + size_v]
         w_i = w[size_u + size_v:size_u + 2 * size_v]
@@ -967,7 +967,7 @@ def _compute_obo(x0, X_bd, X_all, yi, plot, size_u, size_v, verbose,
         return 0.5 * (res * res).sum(), np.asarray(grad).ravel()
 
 
-    out = optimize.fmin_tnc(f, x0, disp=5, maxfun=maxiter, messages=verbose)
+    out = optimize.fmin_tnc(fun_grad, x0, disp=5, maxfun=maxiter, messages=verbose)
     u = out[0][:size_u]
     u = u * np.sign(u[5])
     u /= linalg.norm(u)

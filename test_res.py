@@ -32,7 +32,7 @@ for n_session, Y_session in enumerate(np.split(Y, 5)):
     X_test = X_session[5 * k:]
     Y_train = Y_session[:5 * k]
     Y_test = Y_session[5 * k:]
-    n_task = 1000
+    n_task = 5
     print('Done')
 
     print('Detrending')
@@ -68,25 +68,60 @@ for n_session, Y_session in enumerate(np.split(Y, 5)):
 
 
     print('Calling rank_one')
-    u0 = np.repeat(canonical, n_task).reshape((-1, n_task))
-
-    print('GOING OBO')
-    start = datetime.now()
     u0 = canonical
-    out = mt.rank_one_obo(
-        X_train, Y_train, fir_length, u0=u0, v0=v0,
-        verbose=False, plot=False, n_jobs=4)
-    print datetime.now() - start
-    u_obo, v = out
+
+    #print('GOING OBO')
+    #start = datetime.now()
+    #u0 = canonical
+    #out = mt.rank_one_obo(
+    #    X_train, Y_train, fir_length, u0=u0, v0=v0,
+    #    verbose=False, plot=False, n_jobs=1)
+    #print datetime.now() - start
+    #u_obo, v = out
 
     print('RANK ONE CLASSIC SETTING')
-    start = datetime.now()
-    u0 = canonical
-    out = he.rank_one(
-        X_train, Y_train, fir_length, u0=u0, v0=v0,
-        verbose=1)
-    print datetime.now() - start
-    u, v = out
+    u = u0
+    v = v0[:, 0]
+    for i, y_train in enumerate(Y_train.T):
+        pl.figure()
+        y_train = y_train[:, None]
+        # compute optimal point
+        u0, v0 = u, v # the one from previous voxel
+        u, v = he.rank_one(
+                X_train, y_train, fir_length, u0=u0, v0=v0,
+                verbose=1, method='TNC', rtol=1e-32)
+        uv0 = he.khatri_rao(v, u)
+        min_loss = .5 * (linalg.norm(y_train - X_train.dot(uv0)) ** 2)
+        for solver in ('TNC', 'Newton-CG', 'L-BFGS-B', 'trust-ncg', 'CG'):
+            loss = []
+            timings = []
+            def callback(w):
+                W = w.reshape((-1, 1), order='F')
+                u, v, c = W[:size_u], W[size_u:size_u + size_v], W[size_u + size_v:]
+                uv0 = he.khatri_rao(v, u)
+                loss.append(.5 * (linalg.norm(y_train - X_train.dot(uv0)) **
+                                  2))
+                timings.append((datetime.now() - start).total_seconds())
+            start = datetime.now()
+            u0 = canonical
+            out = he.rank_one(
+                X_train, y_train, fir_length, u0=u0, v0=v0,
+                verbose=1, callback=callback, method=solver, rtol=1e-12)
+            print datetime.now() - start
+            u, v = out
+            pl.plot(timings, loss - min_loss, label=solver, lw=4)
+            #pl.scatter(timings, loss, marker='x', color='black', lw=.5)
+
+        pl.legend(loc='lower left')
+        #pl.xlim((0, .15))
+        #
+        pl.yscale('log')
+        #pl.ylim((1e-6, 1))
+        pl.axis('tight')
+        pl.ylabel(r'$f(x_k) - f(x^{*})$', fontsize='x-large')
+        pl.xlabel('Time (in seconds)', fontsize='x-large')
+        pl.show()
+    import ipdb; ipdb.set_trace()
 
     residuals_rank_one = []
     for i in range(n_task):
