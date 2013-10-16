@@ -50,39 +50,50 @@ def newton_cg(func_grad_hess, func, x0, args=(), xtol=1e-5, eps=1e-4,
         termcond = eta * maggrad
         xsupi = np.zeros(len(x0), dtype=x0.dtype)
         ri = grad
-        psupi = -ri
         i = 0
-        dri0 = np.dot(ri, ri)
+        if precond is None:
+            psupi = -ri
+            dri0 = np.dot(ri, ri)
+        else:
+            yi = precond.dot(ri)
+            dri0 = np.dot(ri, yi)
+            psupi = -yi
 
         # Inner loop: solve the Newton update by conjugate gradient, to
         # avoid inverting the Hessian
-        #while np.sum(np.abs(ri)) > termcond:
-        #    Ap = fhess_p(psupi)
-        #    # check curvature
-        #    curv = np.dot(psupi, Ap)
-        #    if 0 <= curv <= 3*np.finfo(np.float64).eps:
-        #        break
-        #    elif curv < 0:
-        #        if (i > 0):
-        #            break
-        #        else:
-        #            # fall back to steepest descent direction
-        #            xsupi = xsupi + dri0 / curv * psupi
-        #            break
-        #    alphai = dri0 / curv
-        #    xsupi = xsupi + alphai * psupi
-        #    ri = ri + alphai * Ap
-        #    dri1 = np.dot(ri, ri)
-        #    betai = dri1 / dri0
-        #    psupi = -ri + betai * psupi
-        #    i = i + 1
-        #    dri0 = dri1          # update np.dot(ri,ri) for next time.
-
-        X_lo = splinalg.LinearOperator((x0.size, x0.size), fhess_p,
-                                       dtype=np.float)
-        tmp = splinalg.cg(X_lo, -grad, x0=-grad, tol=termcond, M=precond,
-                          maxiter=10)[0]
-        xsupi = tmp
+        while np.sum(np.abs(ri)) > termcond:
+            #print(np.sum(np.abs(ri)), termcond)
+            Ap = fhess_p(psupi)
+            # check curvature
+            curv = np.dot(psupi, Ap)
+            if 0 <= curv <= 3*np.finfo(np.float64).eps:
+                break
+            elif curv < 0:
+                if (i > 0):
+                    break
+                else:
+                    # fall back to steepest descent direction
+                    xsupi = xsupi + dri0 / curv * psupi
+                    break
+            if precond is None:
+                alphai = dri0 / curv
+                xsupi = xsupi + alphai * psupi
+                ri = ri + alphai * Ap
+                dri1 = np.dot(ri, ri)
+                betai = dri1 / dri0
+                psupi = -ri + betai * psupi
+                i = i + 1
+                dri0 = dri1          # update np.dot(ri,ri) for next time.
+            else:
+                alphai = dri0 / curv
+                xsupi = xsupi + alphai * psupi
+                ri = ri + alphai * Ap
+                yi = precond.dot(ri)
+                dri1 = np.dot(yi, ri)
+                betai = dri1 / dri0
+                psupi = -yi + betai * psupi
+                i = i + 1
+                dri0 = dri1          # update np.dot(yi,ri) for next time.
 
         if old_fval is None:
             old_fval = fval
