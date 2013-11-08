@@ -120,6 +120,7 @@ for n_session, Y_session in enumerate(np.split(Y, 5)):
         pl.axis('tight')
         pl.ylabel(r'$f(x_k) - f(x^{*})$', fontsize='x-large')
         pl.xlabel('Time (in seconds)', fontsize='x-large')
+        pl.savefig('bench_r1.png', transparent=True)
         pl.show()
     import ipdb; ipdb.set_trace()
 
