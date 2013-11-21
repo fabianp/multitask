@@ -6,7 +6,7 @@ from datetime import datetime
 def prox_l1(a, b):
     return np.sign(a) * np.fmax(np.abs(a) - b, 0)
 
-def prox(X, t, v0, n_nonzero=190, n=0, algo='sparse', n_svals=10):
+def prox(X, t, v0, n_nonzero=190, n=0, algo='dense', n_svals=10):
     """prox operator for trace norm
     Algo: {sparse, dense}
     """
