@@ -1,5 +1,6 @@
 import multitask
 from distutils.core import setup
+import setuptools
 
 CLASSIFIERS = """\
 Development Status :: 5 - Production/Stable
