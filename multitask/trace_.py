@@ -6,22 +6,21 @@ from datetime import datetime
 def prox_l1(a, b):
     return np.sign(a) * np.fmax(np.abs(a) - b, 0)
 
-def prox(X, t, v0, n_nonzero=190, n=0, algo='dense', n_svals=10):
+def prox(X, t, v0, n_nonzero=190, n=0, algo='sparse', n_svals=10):
     """prox operator for trace norm
     Algo: {sparse, dense}
     """
 
     if algo=='sparse':
-        k = min(np.min(X.shape), n_nonzero)
+        k = min(np.min(X.shape) - 1, n_nonzero)
         if v0 is None:
             v0_init = None
         else:
             v0_init = v0[0]
-        if X.shape[0] > X.shape[1]:
+        if False: #X.shape[0] > X.shape[1]:
             raise NotImplementedError('Sorry (you need to pass u0 instead of v0)')
-        u, s, vt = splinalg.svds(X, k=k, v0=v0_init, maxiter=50, tol=1e-3)
+        u, s, vt = splinalg.svds(X, k=k, v0=v0_init, maxiter=500, tol=1e-6)
         u, s, vt = u[:, ::-1], s[::-1], vt[::-1]
-        print(2, u.shape, vt.shape)
     else:
         u, s, vt = linalg.svd(X, full_matrices=False)
         #u, s, vt = randomized_svd(X, n_svals)
