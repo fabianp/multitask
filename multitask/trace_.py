@@ -138,6 +138,16 @@ def trace_frankwolfe(X, y, shape_B, rtol=1e-3, max_iter=100, verbose=False,
                      warm_start=None, n_svals=10, L=None):
     """
     trace norm constrained frank wolfe
+
+    The model is:
+
+        minimize ||y - Xb||^2_2
+
+    subject to ||b.reshape(shape_B)||_* < 1
+
+    TODO:
+       * add regularization parameter
+       * add duality gap   
     """
 
     def f_obj(w):
