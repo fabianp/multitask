@@ -134,8 +134,7 @@ def trace(X, y, alpha, beta, shape_B, rtol=1e-3, max_iter=1000, verbose=False,
 from low_rank_ import svd_power_method
 
 
-def trace_frankwolfe(X, y, shape_B, rtol=1e-3, max_iter=100, verbose=False,
-                     warm_start=None, n_svals=10, L=None):
+def trace_frankwolfe(X, y, shape_B, max_iter=100):
     """
     trace norm constrained frank wolfe
 
@@ -147,7 +146,7 @@ def trace_frankwolfe(X, y, shape_B, rtol=1e-3, max_iter=100, verbose=False,
 
     TODO:
        * add regularization parameter
-       * add duality gap   
+       * add duality gap
     """
 
     def f_obj(w):
